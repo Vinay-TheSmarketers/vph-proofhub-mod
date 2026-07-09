@@ -61,6 +61,22 @@ Labels: security, oauth, devops, testing
 
         self.assertEqual(decisions[0].action_type, "create_task")
 
+    def test_labels_are_payload_metadata_not_description_or_status_labels(self) -> None:
+        parse_result = app.parse_input(
+            """Task: Google Search Console Module Integration
+Description: Build the integration layer.
+Status: completed
+Priority: high
+Labels: seo-auto-system, backend
+""",
+            DEFAULTS,
+        )
+        label_map = app.parse_label_map("seo-auto-system=1\nbackend=2\nhigh=3\ncompleted=4")
+        payload = app.build_payload(parse_result.tasks[0], {}, label_map, app.infer_task_labels(parse_result.tasks[0]))
+
+        self.assertNotIn("Labels:", parse_result.tasks[0].description)
+        self.assertEqual(payload["labels"], [1, 2, 3])
+
     def test_existing_task_title_match_converts_create_to_update(self) -> None:
         parse_result = app.parse_input(
             """Task: Google Search Console Module Integration

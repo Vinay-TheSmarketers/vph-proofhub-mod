@@ -492,8 +492,6 @@ def parse_task_block(block: str, defaults: dict[str, Any], inherited_parent_id: 
         ("Manual workflow", "analyze_manual_workflow"),
         ("Extension triggers", "define_extension_triggers"),
         ("Tech stack", "select_tech_stack"),
-        ("Labels", "labels"),
-        ("Assignees", "assignees"),
         ("Time estimate", "time"),
         ("Progress", "progress"),
         ("End date", "end_date"),
@@ -893,8 +891,6 @@ def infer_task_labels(task: ParsedTask) -> list[str]:
             labels.append(label_names[0])
     if task.priority:
         labels.append(task.priority.lower())
-    if task.status:
-        labels.append(task.status.lower())
     return labels
 
 
