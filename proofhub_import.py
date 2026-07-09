@@ -11,6 +11,8 @@ from app import (
     DEFAULT_PROJECT_ID,
     DEFAULT_TASKLIST_ID,
     ProofHubClient,
+    RoutingDecision,
+    apply_existing_task_matches,
     execute_tasks,
     flatten_preview,
     label_coverage,
@@ -28,6 +30,7 @@ from app import (
 DEFAULT_CREATE_TASK_PATH = "/projects/{project_id}/todolists/{tasklist_id}/tasks"
 DEFAULT_CREATE_SUBTASK_PATH = "/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}/subtasks"
 DEFAULT_UPDATE_TASK_PATH = "/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}"
+DEFAULT_LIST_TASKS_PATH = "/projects/{project_id}/todolists/{tasklist_id}/tasks"
 DEFAULT_STATUS_MAP = "todo=To Do\nin progress=In Progress\ndone=Completed\nblocked=Blocked"
 DEFAULT_LABELS_PATH = "/labels"
 DEFAULT_CREATE_LABEL_PATH = "/labels"
@@ -45,11 +48,13 @@ def main() -> int:
     parser.add_argument("--create-task-path", default=DEFAULT_CREATE_TASK_PATH)
     parser.add_argument("--create-subtask-path", default=DEFAULT_CREATE_SUBTASK_PATH)
     parser.add_argument("--update-task-path", default=DEFAULT_UPDATE_TASK_PATH)
+    parser.add_argument("--list-tasks-path", default=DEFAULT_LIST_TASKS_PATH)
     parser.add_argument("--label-map", default="", help="Newline or comma separated label=id mappings.")
     parser.add_argument("--labels-path", default=DEFAULT_LABELS_PATH)
     parser.add_argument("--create-label-path", default=DEFAULT_CREATE_LABEL_PATH)
     parser.add_argument("--fetch-labels", action="store_true", help="Fetch labels from ProofHub before preview/run.")
     parser.add_argument("--auto-create-missing-labels", action="store_true")
+    parser.add_argument("--no-update-matching-titles", action="store_true", help="Create duplicate parent tasks instead of updating title matches.")
     args = parser.parse_args()
 
     raw_text = args.input_file.read_text(encoding="utf-8")
@@ -108,6 +113,22 @@ def main() -> int:
 
     if client is None:
         client = ProofHubClient(api_key, args.base_url, args.api_key_header, args.company_url)
+    match_logs = []
+    if not args.no_update_matching_titles:
+        match_logs = apply_existing_task_matches(
+            client,
+            parse_result,
+            [
+                RoutingDecision(
+                    action_type="create_task",
+                    target_bucket_id=task.tasklist_id,
+                    task_payload={},
+                    routing_justification="CLI import parent task.",
+                )
+                for task in parse_result.tasks
+            ],
+            args.list_tasks_path,
+        )
     logs = execute_tasks(
         client,
         parse_result,
@@ -117,7 +138,7 @@ def main() -> int:
         args.create_subtask_path,
         args.update_task_path,
     )
-    logs = label_logs + logs
+    logs = label_logs + match_logs + logs
     print(json.dumps(logs, indent=2, default=str))
     return 1 if any(log.get("level") == "error" for log in logs) else 0
 

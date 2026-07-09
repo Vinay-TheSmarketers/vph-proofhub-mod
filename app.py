@@ -176,6 +176,11 @@ class ProofHubClient:
         path = update_endpoint.format(project_id=project_id, tasklist_id=tasklist_id, task_id=task_id)
         return self._request("PUT", path, json_body=payload)
 
+    def list_tasks(self, project_id: str, tasklist_id: str, list_tasks_endpoint: str) -> list[dict[str, Any]]:
+        path = list_tasks_endpoint.format(project_id=project_id, tasklist_id=tasklist_id)
+        response = self._request("GET", path)
+        return normalize_task_records(response)
+
     def check_connection(self, account_endpoint: str) -> dict[str, Any]:
         return self._request("GET", account_endpoint)
 
@@ -774,6 +779,39 @@ def normalize_label_records(response: Any) -> list[dict[str, Any]]:
     return []
 
 
+def normalize_task_records(response: Any) -> list[dict[str, Any]]:
+    if isinstance(response, list):
+        return [item for item in response if isinstance(item, dict)]
+    if not isinstance(response, dict):
+        return []
+
+    for key in ("data", "tasks", "items", "results"):
+        value = response.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+        if isinstance(value, dict):
+            nested = normalize_task_records(value)
+            if nested:
+                return nested
+
+    if (response.get("title") or response.get("name")) and (response.get("id") or response.get("task_id")):
+        return [response]
+    return []
+
+
+def normalized_title(value: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", value.lower())).strip()
+
+
+def task_record_title(record: dict[str, Any]) -> str:
+    return str(record.get("title") or record.get("name") or record.get("task_title") or "").strip()
+
+
+def task_record_id(record: dict[str, Any]) -> str | None:
+    task_id = record.get("id") or record.get("task_id")
+    return str(task_id) if task_id else None
+
+
 def label_map_from_records(records: Any) -> dict[str, int]:
     if not isinstance(records, list):
         records = normalize_label_records(records)
@@ -1202,10 +1240,75 @@ def execute_tasks(
                     update_endpoint,
                 )
                 logs.append(success_log("updated_task", task.title, response, task.project_id, task.tasklist_id))
+                for subtask in task.subtasks:
+                    subtask.project_id = subtask.project_id or task.project_id
+                    subtask.tasklist_id = subtask.tasklist_id or task.tasklist_id
+                    subtask.parent_id = subtask.parent_id or task.task_id
+                    sub_payload = build_payload(subtask, status_map, label_map, infer_task_labels(subtask))
+                    response = client.create_subtask(
+                        subtask.project_id,
+                        subtask.tasklist_id,
+                        subtask.parent_id,
+                        sub_payload,
+                        create_subtask_endpoint,
+                    )
+                    logs.append(
+                        success_log(
+                            "created_subtask",
+                            subtask.title,
+                            response,
+                            subtask.project_id,
+                            subtask.tasklist_id,
+                            parent_title=task.title,
+                        )
+                    )
         except ProofHubError as exc:
             logs.append(error_log(task.title, str(exc), exc.status_code, exc.body))
         except Exception as exc:
             logs.append(error_log(task.title, f"Unexpected execution error: {exc}", None, ""))
+    return logs
+
+
+def apply_existing_task_matches(
+    client: ProofHubClient,
+    parse_result: ParseResult,
+    routing_decisions: list[RoutingDecision],
+    list_tasks_endpoint: str,
+) -> list[dict[str, Any]]:
+    logs: list[dict[str, Any]] = []
+    buckets: dict[tuple[str, str], list[ParsedTask]] = {}
+    for task, decision in zip(parse_result.tasks, routing_decisions):
+        if decision.action_type != "create_task" or task.action != "create" or not task.project_id or not task.tasklist_id:
+            continue
+        buckets.setdefault((task.project_id, task.tasklist_id), []).append(task)
+
+    for (project_id, tasklist_id), tasks in buckets.items():
+        try:
+            existing_records = client.list_tasks(project_id, tasklist_id, list_tasks_endpoint)
+        except ProofHubError as exc:
+            logs.append(error_log("Existing task lookup", str(exc), exc.status_code, exc.body))
+            continue
+
+        existing_by_title: dict[str, str] = {}
+        for record in existing_records:
+            title = normalized_title(task_record_title(record))
+            task_id = task_record_id(record)
+            if title and task_id and title not in existing_by_title:
+                existing_by_title[title] = task_id
+
+        for task in tasks:
+            task_id = existing_by_title.get(normalized_title(task.title))
+            if not task_id:
+                continue
+            task.action = "update"
+            task.task_id = task_id
+            logs.append(
+                {
+                    "time": now_local().strftime("%H:%M:%S"),
+                    "level": "info",
+                    "message": f'Existing task matched: "{task.title}" will be updated instead of duplicated (task ID {task_id}).',
+                }
+            )
     return logs
 
 
@@ -1857,6 +1960,7 @@ def main() -> None:
     create_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks"
     create_subtask_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}/subtasks"
     update_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}"
+    list_tasks_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks"
     create_project_endpoint = "/projects"
     create_tasklist_endpoint = "/projects/{project_id}/todolists"
     labels_endpoint = "/labels"
@@ -1864,6 +1968,7 @@ def main() -> None:
     create_standalone_projects = True
     create_roadmap_tasklists = True
     auto_create_missing_labels = False
+    update_matching_titles = True
 
     with st.expander("Configure", expanded=False):
         cfg_left, cfg_right = st.columns(2, gap="large")
@@ -1882,6 +1987,7 @@ def main() -> None:
             create_endpoint = st.text_input("Create task path", value=create_endpoint)
             create_subtask_endpoint = st.text_input("Create subtask path", value=create_subtask_endpoint)
             update_endpoint = st.text_input("Update task path", value=update_endpoint)
+            list_tasks_endpoint = st.text_input("List tasks path", value=list_tasks_endpoint)
             create_project_endpoint = st.text_input("Create project path", value=create_project_endpoint)
             create_tasklist_endpoint = st.text_input("Create tasklist path", value=create_tasklist_endpoint)
             labels_endpoint = st.text_input("Labels path", value=labels_endpoint)
@@ -1889,6 +1995,7 @@ def main() -> None:
             create_standalone_projects = st.toggle("Create standalone projects", value=True)
             create_roadmap_tasklists = st.toggle("Create roadmap tasklists", value=True)
             auto_create_missing_labels = st.toggle("Auto-create missing labels", value=False)
+            update_matching_titles = st.toggle("Update matching task titles", value=True)
 
     if auth_header == "Authorization" and api_key and not api_key.lower().startswith("bearer "):
         api_key_for_client = f"Bearer {api_key}"
@@ -2074,6 +2181,11 @@ def main() -> None:
                     if create_standalone_projects
                     else []
                 )
+                match_logs = (
+                    apply_existing_task_matches(client, executable_parse_result, routing_decisions, list_tasks_endpoint)
+                    if update_matching_titles
+                    else []
+                )
                 if executable_parse_result.tasks:
                     logs = execute_tasks(
                         client,
@@ -2086,7 +2198,7 @@ def main() -> None:
                     )
                 else:
                     logs = []
-                st.session_state.run_logs = route_logs + label_logs + project_logs + logs + st.session_state.run_logs
+                st.session_state.run_logs = route_logs + label_logs + project_logs + match_logs + logs + st.session_state.run_logs
             st.rerun()
 
         st.markdown('<p class="panel-title">Execution Results</p>', unsafe_allow_html=True)

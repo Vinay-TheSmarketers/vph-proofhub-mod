@@ -114,6 +114,8 @@ To find labels from the app:
 
 Keep **Auto-create missing labels** off if your ProofHub account creates labels without returning IDs. The app will still create tasks; it will only attach labels that have known numeric IDs.
 
+Keep **Update matching task titles** on when importing a structured script into a tasklist that may already contain those parent tasks. The app fetches existing tasks from the configured **List tasks path**, matches parent titles, and updates the existing ProofHub task instead of creating a duplicate. Subtasks from the pasted script are then added under that matched parent.
+
 ## ProofHub settings
 
 The app keeps the ProofHub API key in a password field and never stores it in the log. Because ProofHub deployments and API versions can vary, the sidebar exposes:
