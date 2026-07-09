@@ -1059,9 +1059,9 @@ def render_brand_shell() -> None:
             }}
 
             .block-container {{
-                max-width: 930px;
-                padding-top: 2rem;
-                padding-bottom: 2rem;
+                max-width: min(1560px, calc(100vw - 56px));
+                min-height: 100vh;
+                padding: 2rem 0 1.5rem;
             }}
 
             .brand-hero {{
@@ -1069,13 +1069,21 @@ def render_brand_shell() -> None:
                 grid-template-columns: 132px 1fr auto;
                 align-items: center;
                 gap: 14px;
-                margin: 0 auto 22px;
+                margin: 0 0 22px;
                 padding: 16px;
                 border: 1px solid var(--line-strong);
                 border-radius: 10px;
                 background: linear-gradient(135deg, rgba(20,20,20,.82), rgba(7,7,7,.72));
                 box-shadow: 0 22px 70px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.08);
                 backdrop-filter: blur(22px);
+            }}
+
+            [data-testid="stHorizontalBlock"] {{
+                align-items: stretch;
+            }}
+
+            [data-testid="column"] {{
+                min-width: 0;
             }}
 
             .brand-logo {{
@@ -1149,6 +1157,7 @@ def render_brand_shell() -> None:
             }}
 
             div[data-testid="stVerticalBlock"] > div:has(> [data-testid="stMarkdownContainer"] .panel-title) {{
+                min-height: 100%;
                 padding: 14px;
                 border: 1px solid var(--line-strong);
                 border-radius: 10px;
@@ -1227,7 +1236,12 @@ def render_brand_shell() -> None:
             }}
 
             div[data-testid="stTextArea"] textarea {{
-                min-height: 84px;
+                min-height: clamp(92px, 13vh, 170px);
+            }}
+
+            div[data-testid="stDataFrame"] {{
+                max-height: 34vh;
+                overflow: auto;
             }}
 
             .execution-row {{
@@ -1267,6 +1281,10 @@ def render_brand_shell() -> None:
             }}
 
             @media (max-width: 760px) {{
+                .block-container {{
+                    max-width: calc(100vw - 28px);
+                    padding-top: 1rem;
+                }}
                 .brand-hero {{
                     grid-template-columns: 72px 1fr;
                     padding: 14px;
@@ -1280,6 +1298,15 @@ def render_brand_shell() -> None:
                 }}
                 .brand-title {{
                     font-size: 24px;
+                }}
+            }}
+
+            @media (min-width: 1180px) {{
+                .console-footer {{
+                    position: fixed;
+                    left: 50%;
+                    bottom: 18px;
+                    transform: translateX(-50%);
                 }}
             }}
         </style>
@@ -1359,7 +1386,7 @@ def main() -> None:
     bucket_map = parse_bucket_map(raw_bucket_map, default_tasklist_id.strip())
     known_titles = [line.strip() for line in known_work_titles.splitlines() if line.strip()]
 
-    left, right = st.columns([0.33, 0.67], gap="large")
+    left, right = st.columns([0.28, 0.72], gap="large")
 
     with left:
         st.markdown('<p class="panel-title">Project Setup</p>', unsafe_allow_html=True)
