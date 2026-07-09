@@ -850,6 +850,13 @@ def labels_needed_for_parse_result(parse_result: ParseResult) -> list[str]:
     return labels
 
 
+def label_coverage(parse_result: ParseResult, label_map: dict[str, int]) -> tuple[list[str], list[str]]:
+    needed = labels_needed_for_parse_result(parse_result)
+    mapped = [label for label in needed if label.lower() in label_map]
+    missing = [label for label in needed if label.lower() not in label_map]
+    return mapped, missing
+
+
 def sync_label_map(
     client: ProofHubClient,
     label_map: dict[str, int],
@@ -2000,7 +2007,8 @@ def main() -> None:
             )
         with button_col:
             st.write("")
-            run_clicked = st.button("Generate & Orchestrate", type="primary", width="stretch", disabled=not raw_text.strip())
+            run_label = "Preview Payloads" if dry_run else "Update ProofHub"
+            run_clicked = st.button(run_label, type="primary", width="stretch", disabled=not raw_text.strip())
             render_copy_sample_button(sample_template_text())
         st.session_state.raw_text = raw_text
 
@@ -2008,6 +2016,7 @@ def main() -> None:
         routing_decisions = route_tasks(parse_result, status_map, bucket_map, label_map, known_titles)
         validation_errors = validate_execution(parse_result)
         preview_rows = flatten_preview(parse_result.tasks, status_map, label_map)
+        mapped_labels, missing_labels = label_coverage(parse_result, label_map)
 
         if run_clicked:
             if dry_run:
@@ -2017,8 +2026,8 @@ def main() -> None:
                         "time": now_local().strftime("%H:%M:%S"),
                         "level": "info",
                         "message": (
-                            f'Preview ready: project "{defaults.get("project_id") or "active project"}" would be updated '
-                            f"with {len(preview_rows)} prepared ProofHub payloads."
+                            f'Dry run only: project "{defaults.get("project_id") or "active project"}" would be updated '
+                            f"with {len(preview_rows)} prepared ProofHub payloads. No ProofHub API writes were made."
                         ),
                         "response": {
                             "routing_decisions": routing_decisions_json(routing_decisions),
@@ -2041,6 +2050,18 @@ def main() -> None:
                     create_label_endpoint,
                     auto_create_missing_labels,
                 )
+                _, unresolved_labels = label_coverage(parse_result, synced_label_map)
+                if unresolved_labels:
+                    label_logs.append(
+                        {
+                            "time": now_local().strftime("%H:%M:%S"),
+                            "level": "info",
+                            "message": (
+                                "Tasks will still be created, but these labels need ProofHub IDs before they can be attached: "
+                                + ", ".join(unresolved_labels)
+                            ),
+                        }
+                    )
                 project_logs = (
                     execute_project_commands(
                         client,
@@ -2073,6 +2094,12 @@ def main() -> None:
             st.warning("\n".join(parse_result.warnings))
         if validation_errors:
             st.error("\n".join(validation_errors))
+        if raw_text.strip():
+            mode_text = "Preview only. ProofHub will not be updated until Dry run is off." if dry_run else "Live mode. ProofHub will be updated when you run."
+            st.caption(
+                f"{mode_text} Labels mapped: {len(mapped_labels)}"
+                + (f" | Missing label IDs: {', '.join(missing_labels)}" if missing_labels else " | All detected labels have IDs.")
+            )
 
         if st.session_state.run_logs:
             for item in st.session_state.run_logs[:6]:
