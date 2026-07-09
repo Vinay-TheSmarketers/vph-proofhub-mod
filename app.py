@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 DEFAULT_COMPANY_URL = "https://smarketers.proofhub.com"
@@ -21,6 +22,33 @@ DEFAULT_TASKLIST_ID = "271269310285"
 DEFAULT_PROVIDED_TASK_FILE = (
     r"C:\Users\OrCon\.codex\attachments\cf87045d-fad8-4611-a28f-549e1447733d\pasted-text-2.txt"
 )
+DEFAULT_SAMPLE_TEMPLATE = """Project: 9572720073
+Tasklist: 271269310285
+
+Task: Build frontend UI polish
+Description: Tighten the layout, simplify the controls, and verify responsive behavior.
+Status: in progress
+Priority: medium
+Labels: ui/ux, frontend
+Start Date: today
+Due Date: tomorrow
+Assignees: 123456789
+
+Subtask: Review desktop layout
+Status: in progress
+Due Date: today
+
+Subtask: Test mobile responsiveness
+Status: todo
+Due Date: tomorrow
+
+Task: New web scraper mini-app
+Description: Standalone automation tool for collecting and validating metadata.
+Status: todo
+Priority: high
+Labels: backend, seo
+Due Date: next Friday
+"""
 
 
 ActionKind = Literal["create", "update"]
@@ -1311,6 +1339,42 @@ def load_text_file(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
+def sample_template_text() -> str:
+    try:
+        return load_text_file(DEFAULT_PROVIDED_TASK_FILE)
+    except OSError:
+        return DEFAULT_SAMPLE_TEMPLATE
+
+
+def render_copy_sample_button(template: str) -> None:
+    button_html = f"""
+    <button id="copy-sample-template" style="
+        width: 100%;
+        min-height: 2.7rem;
+        border: 1px solid rgba(255,255,255,0.18);
+        border-radius: 8px;
+        background: rgba(255,255,255,0.05);
+        color: #f4f4f0;
+        font: 600 0.92rem/1.2 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        cursor: pointer;
+    ">Copy Sample Text</button>
+    <script>
+    const button = document.getElementById("copy-sample-template");
+    const template = {json.dumps(template)};
+    button.addEventListener("click", async () => {{
+        try {{
+            await navigator.clipboard.writeText(template);
+            button.textContent = "Copied Template";
+        }} catch (error) {{
+            button.textContent = "Copy Failed";
+        }}
+        setTimeout(() => button.textContent = "Copy Sample Text", 1800);
+    }});
+    </script>
+    """
+    components.html(button_html, height=48)
+
+
 def default_secret(name: str) -> str:
     try:
         return str(st.secrets.get(name, ""))
@@ -1785,12 +1849,7 @@ def main() -> None:
         with button_col:
             st.write("")
             run_clicked = st.button("Generate & Orchestrate", type="primary", width="stretch", disabled=not raw_text.strip())
-            if st.button("Load Sample Text", width="stretch"):
-                try:
-                    st.session_state.raw_text = load_text_file(DEFAULT_PROVIDED_TASK_FILE)
-                    st.rerun()
-                except OSError as exc:
-                    st.session_state.run_logs.insert(0, error_log("Sample text", str(exc), None, ""))
+            render_copy_sample_button(sample_template_text())
         st.session_state.raw_text = raw_text
 
         parse_result = parse_input(raw_text, defaults)
