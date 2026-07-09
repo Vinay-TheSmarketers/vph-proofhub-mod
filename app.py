@@ -874,7 +874,7 @@ def execute_tasks(
                 assert task.project_id and task.tasklist_id
                 response = client.create_task(task.project_id, task.tasklist_id, payload, create_endpoint)
                 created_id = extract_task_id(response)
-                logs.append(success_log("Created parent task", task.title, response))
+                logs.append(success_log("created_task", task.title, response, task.project_id, task.tasklist_id))
                 for subtask in task.subtasks:
                     subtask.project_id = subtask.project_id or task.project_id
                     subtask.tasklist_id = subtask.tasklist_id or task.tasklist_id
@@ -890,7 +890,16 @@ def execute_tasks(
                         sub_payload,
                         create_subtask_endpoint,
                     )
-                    logs.append(success_log("Created subtask", subtask.title, response))
+                    logs.append(
+                        success_log(
+                            "created_subtask",
+                            subtask.title,
+                            response,
+                            subtask.project_id,
+                            subtask.tasklist_id,
+                            parent_title=task.title,
+                        )
+                    )
             else:
                 assert task.project_id and task.tasklist_id and task.task_id
                 response = client.update_task(
@@ -900,7 +909,7 @@ def execute_tasks(
                     payload,
                     update_endpoint,
                 )
-                logs.append(success_log("Updated task", task.title, response))
+                logs.append(success_log("updated_task", task.title, response, task.project_id, task.tasklist_id))
         except ProofHubError as exc:
             logs.append(error_log(task.title, str(exc), exc.status_code, exc.body))
         except Exception as exc:
@@ -920,7 +929,7 @@ def prepare_executable_parse_result(
                 {
                     "time": now_local().strftime("%H:%M:%S"),
                     "level": "info",
-                    "message": f"Skipped current-list creation for standalone project command: {task.title}",
+                    "message": f'Project creation recommended: "{task.title}" should be created as a separate ProofHub project with its own roadmap.',
                     "response": routing_decisions_json([decision])[0],
                 }
             )
@@ -953,11 +962,60 @@ def extract_task_id(response: dict[str, Any]) -> str | None:
     return None
 
 
-def success_log(action: str, title: str, response: dict[str, Any]) -> dict[str, Any]:
+def response_data(response: dict[str, Any]) -> dict[str, Any]:
+    data = response.get("data")
+    return data if isinstance(data, dict) else response
+
+
+def nested_name(source: dict[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = source.get(key)
+        if isinstance(value, dict):
+            for name_key in ("name", "title"):
+                name = value.get(name_key)
+                if name:
+                    return str(name)
+        elif value:
+            return str(value)
+    return None
+
+
+def proofhub_result_message(
+    action: str,
+    title: str,
+    response: dict[str, Any],
+    project_id: str | None = None,
+    tasklist_id: str | None = None,
+    parent_title: str | None = None,
+) -> str:
+    data = response_data(response)
+    project_name = nested_name(data, "project", "project_name") or (f"project {project_id}" if project_id else "the active project")
+    tasklist_name = nested_name(data, "list", "tasklist", "todolist", "tasklist_name") or (
+        f"tasklist {tasklist_id}" if tasklist_id else "the selected tasklist"
+    )
+    task_id = extract_task_id(response)
+    task_suffix = f" (task ID {task_id})" if task_id else ""
+
+    if action == "created_subtask":
+        parent = f' under "{parent_title}"' if parent_title else ""
+        return f'Project "{project_name}" updated: added subtask "{title}"{parent} in "{tasklist_name}"{task_suffix}.'
+    if action == "updated_task":
+        return f'Project "{project_name}" updated: updated task "{title}" in "{tasklist_name}"{task_suffix}.'
+    return f'Project "{project_name}" updated: created task "{title}" in "{tasklist_name}"{task_suffix}.'
+
+
+def success_log(
+    action: str,
+    title: str,
+    response: dict[str, Any],
+    project_id: str | None = None,
+    tasklist_id: str | None = None,
+    parent_title: str | None = None,
+) -> dict[str, Any]:
     return {
         "time": now_local().strftime("%H:%M:%S"),
         "level": "success",
-        "message": f"{action}: {title}",
+        "message": proofhub_result_message(action, title, response, project_id, tasklist_id, parent_title),
         "response": response,
     }
 
@@ -1474,7 +1532,10 @@ def main() -> None:
                     {
                         "time": now_local().strftime("%H:%M:%S"),
                         "level": "info",
-                        "message": f"Dry run prepared {len(preview_rows)} ProofHub payloads.",
+                        "message": (
+                            f'Preview ready: project "{defaults.get("project_id") or "active project"}" would be updated '
+                            f"with {len(preview_rows)} prepared ProofHub payloads."
+                        ),
                         "response": {
                             "routing_decisions": routing_decisions_json(routing_decisions),
                             "payloads": [row["payload"] for row in preview_rows],
