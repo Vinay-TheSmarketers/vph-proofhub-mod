@@ -65,6 +65,35 @@ The parser also accepts fields such as `Project`, `Project ID`, `Tasklist`, `Tas
 
 Leading title markers such as `*`, `#`, `-`, and `_` are removed automatically from parent tasks and subtasks. Keep `Update #123` only when you want to update an existing ProofHub task ID.
 
+## Routing Decisions
+
+Before orchestration, the app emits strict JSON routing decisions:
+
+```json
+[
+  {
+    "action_type": "create_task",
+    "target_bucket_id": "271269310285",
+    "task_payload": {
+      "title": "Task title",
+      "description": "Task details",
+      "status": "todo",
+      "start_date": null,
+      "due_date": "2026-07-14"
+    },
+    "routing_justification": "Routed to bucket `271269310285` because it matched `backend` context keywords."
+  }
+]
+```
+
+Supported `action_type` values:
+
+- `create_task`: safe to create in the selected ProofHub tasklist.
+- `update_existing`: daily continuity/update intent; requires a concrete `Update #TASK_ID` before the app updates ProofHub.
+- `create_project`: standalone mini-app/tool scope; emitted as a project-creation command and not added to the active tasklist.
+
+Use the sidebar **Bucket map** to connect semantic names like `ui/ux`, `backend`, `qa`, `security`, and `voice` to real ProofHub tasklist IDs.
+
 ## ProofHub settings
 
 The app keeps the ProofHub API key in a password field and never stores it in the log. Because ProofHub deployments and API versions can vary, the sidebar exposes:

@@ -24,6 +24,15 @@ DEFAULT_PROVIDED_TASK_FILE = (
 
 
 ActionKind = Literal["create", "update"]
+RoutingAction = Literal["update_existing", "create_task", "create_project"]
+
+
+@dataclass
+class RoutingDecision:
+    action_type: RoutingAction
+    target_bucket_id: str | None
+    task_payload: dict[str, Any]
+    routing_justification: str
 
 
 @dataclass
@@ -598,6 +607,180 @@ def numeric_ids(values: list[str]) -> list[int]:
     return ids
 
 
+def parse_bucket_map(raw_map: str, default_tasklist_id: str) -> dict[str, str]:
+    buckets: dict[str, str] = {"default": default_tasklist_id}
+    for line in raw_map.splitlines():
+        clean = line.strip()
+        if not clean or "=" not in clean:
+            continue
+        key, value = clean.split("=", 1)
+        key = key.strip().lower()
+        value = value.strip()
+        if key and value:
+            buckets[key] = value
+    return buckets
+
+
+def normalize_words(value: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", value.lower()))
+
+
+def task_context(task: ParsedTask) -> str:
+    parts = [task.title, task.description, task.status or "", " ".join(task.labels)]
+    parts.extend(subtask.title for subtask in task.subtasks)
+    return " ".join(parts).lower()
+
+
+def is_standalone_scope(task: ParsedTask) -> bool:
+    context = task_context(task)
+    standalone_terms = (
+        "mini-app",
+        "mini app",
+        "new app",
+        "standalone",
+        "separate tool",
+        "new tool",
+        "web scraper",
+        "scraper",
+        "automation tool",
+        "extension",
+        "chrome extension",
+        "portal",
+        "dashboard",
+        "platform",
+        "product",
+    )
+    return any(term in context for term in standalone_terms)
+
+
+def likely_daily_update(task: ParsedTask, known_titles: list[str]) -> tuple[bool, str | None]:
+    if task.task_id:
+        return True, task.task_id
+    context = task_context(task)
+    continuity_terms = (
+        "daily update",
+        "status update",
+        "progress",
+        "continued",
+        "continuing",
+        "follow up",
+        "follow-up",
+        "reviewed",
+        "blocked",
+        "completed",
+        "done",
+        "today",
+        "yesterday",
+        "tomorrow",
+    )
+    if not any(term in context for term in continuity_terms):
+        return False, None
+
+    task_words = normalize_words(task.title)
+    for known_title in known_titles:
+        known_words = normalize_words(known_title)
+        if not known_words:
+            continue
+        overlap = len(task_words & known_words) / max(1, min(len(task_words), len(known_words)))
+        if overlap >= 0.6:
+            return True, known_title
+    return False, None
+
+
+def choose_bucket(task: ParsedTask, bucket_map: dict[str, str]) -> tuple[str, str]:
+    context = task_context(task)
+    semantic_routes = [
+        (("frontend", "front-end", "ui", "ux", "interface", "layout", "design system", "styling"), ("ui/ux", "frontend")),
+        (("backend", "api", "database", "postgres", "redis", "server", "worker", "pipeline"), ("backend",)),
+        (("qa", "test", "testing", "validation", "bug", "approval"), ("qa", "testing")),
+        (("security", "auth", "permission", "cryptographic", "isolation"), ("security",)),
+        (("content", "eeat", "seo", "keyword", "metadata", "search console"), ("seo", "content")),
+        (("voice", "call", "outbound", "webrtc", "demo"), ("voice", "operations")),
+        (("deployment", "docker", "release", "shipping", "infrastructure"), ("deployment", "infrastructure")),
+    ]
+
+    for keywords, bucket_names in semantic_routes:
+        if any(keyword in context for keyword in keywords):
+            for bucket_name in bucket_names:
+                if bucket_name in bucket_map:
+                    return bucket_map[bucket_name], f"matched `{bucket_name}` context keywords"
+    return bucket_map.get("default", task.tasklist_id or DEFAULT_TASKLIST_ID), "fell back to default active bucket"
+
+
+def initial_project_roadmap(task: ParsedTask) -> list[dict[str, str]]:
+    return [
+        {"title": "Discovery", "description": "Clarify scope, users, inputs, outputs, and success criteria."},
+        {"title": "Build", "description": "Implement the core workflow, integrations, and UI needed for a working first version."},
+        {"title": "QA & Launch", "description": "Validate behavior, fix defects, document usage, and prepare release."},
+    ]
+
+
+def route_tasks(
+    parse_result: ParseResult,
+    status_map: dict[str, str],
+    bucket_map: dict[str, str],
+    known_titles: list[str],
+) -> list[RoutingDecision]:
+    decisions: list[RoutingDecision] = []
+    for task in parse_result.tasks:
+        payload = build_payload(task, status_map)
+        payload.setdefault("title", task.title)
+        payload.setdefault("description", task.description)
+        payload["status"] = task.status or ("done" if payload.get("completed") else "todo")
+        payload.setdefault("start_date", task.start_at.date().isoformat() if task.start_at else None)
+        payload.setdefault("due_date", task.due_at.date().isoformat() if task.due_at else None)
+
+        if is_standalone_scope(task):
+            payload["roadmap_tasklists"] = initial_project_roadmap(task)
+            decisions.append(
+                RoutingDecision(
+                    action_type="create_project",
+                    target_bucket_id=None,
+                    task_payload=payload,
+                    routing_justification="This request describes a standalone product/tool scope, so it should be isolated as a new ProofHub project.",
+                )
+            )
+            continue
+
+        is_update, match = likely_daily_update(task, known_titles)
+        if is_update:
+            target_bucket_id, reason = choose_bucket(task, bucket_map)
+            task.tasklist_id = target_bucket_id
+            decisions.append(
+                RoutingDecision(
+                    action_type="update_existing",
+                    target_bucket_id=target_bucket_id,
+                    task_payload=payload,
+                    routing_justification=f"Daily continuity terms matched existing work `{match or task.task_id}`, so this should update/append instead of duplicating a parent task.",
+                )
+            )
+            continue
+
+        target_bucket_id, reason = choose_bucket(task, bucket_map)
+        task.tasklist_id = target_bucket_id
+        decisions.append(
+            RoutingDecision(
+                action_type="create_task",
+                target_bucket_id=target_bucket_id,
+                task_payload=payload,
+                routing_justification=f"Routed to bucket `{target_bucket_id}` because it {reason}.",
+            )
+        )
+    return decisions
+
+
+def routing_decisions_json(decisions: list[RoutingDecision]) -> list[dict[str, Any]]:
+    return [
+        {
+            "action_type": decision.action_type,
+            "target_bucket_id": decision.target_bucket_id,
+            "task_payload": decision.task_payload,
+            "routing_justification": decision.routing_justification,
+        }
+        for decision in decisions
+    ]
+
+
 def parse_status_map(raw_map: str) -> dict[str, str]:
     mapping: dict[str, str] = {}
     for line in raw_map.splitlines():
@@ -723,6 +906,39 @@ def execute_tasks(
         except Exception as exc:
             logs.append(error_log(task.title, f"Unexpected execution error: {exc}", None, ""))
     return logs
+
+
+def prepare_executable_parse_result(
+    parse_result: ParseResult,
+    routing_decisions: list[RoutingDecision],
+) -> tuple[ParseResult, list[dict[str, Any]]]:
+    executable_tasks: list[ParsedTask] = []
+    route_logs: list[dict[str, Any]] = []
+    for task, decision in zip(parse_result.tasks, routing_decisions):
+        if decision.action_type == "create_project":
+            route_logs.append(
+                {
+                    "time": now_local().strftime("%H:%M:%S"),
+                    "level": "info",
+                    "message": f"Skipped current-list creation for standalone project command: {task.title}",
+                    "response": routing_decisions_json([decision])[0],
+                }
+            )
+            continue
+        if decision.action_type == "update_existing":
+            if not task.task_id:
+                route_logs.append(
+                    error_log(
+                        task.title,
+                        "Routed as update_existing but no ProofHub task ID was supplied. Add `Update #TASK_ID` or review manually.",
+                        None,
+                        "",
+                    )
+                )
+                continue
+            task.action = "update"
+        executable_tasks.append(task)
+    return ParseResult(tasks=executable_tasks, warnings=parse_result.warnings, defaults=parse_result.defaults), route_logs
 
 
 def extract_task_id(response: dict[str, Any]) -> str | None:
@@ -1045,6 +1261,31 @@ def main() -> None:
         default_tasklist_id = st.text_input("Tasklist ID", value=DEFAULT_TASKLIST_ID)
         dry_run = st.toggle("Dry run", value=True, help="Preview parsing and payloads without calling ProofHub.")
 
+        st.header("Routing")
+        raw_bucket_map = st.text_area(
+            "Bucket map",
+            value=(
+                f"default={DEFAULT_TASKLIST_ID}\n"
+                f"seo={DEFAULT_TASKLIST_ID}\n"
+                "ui/ux=\n"
+                "frontend=\n"
+                "backend=\n"
+                "qa=\n"
+                "security=\n"
+                "deployment=\n"
+                "voice=\n"
+                "operations="
+            ),
+            height=190,
+            help="Map semantic bucket names to existing ProofHub tasklist IDs. Blank lines are ignored.",
+        )
+        known_work_titles = st.text_area(
+            "Known ongoing work",
+            value="",
+            height=100,
+            help="Optional: one existing parent task/project title per line for daily continuity matching.",
+        )
+
         st.header("Endpoints")
         create_endpoint = st.text_input(
             "Create task path",
@@ -1068,6 +1309,8 @@ def main() -> None:
 
     defaults = {"project_id": default_project_id.strip(), "tasklist_id": default_tasklist_id.strip()}
     status_map = parse_status_map(raw_status_map)
+    bucket_map = parse_bucket_map(raw_bucket_map, default_tasklist_id.strip())
+    known_titles = [line.strip() for line in known_work_titles.splitlines() if line.strip()]
 
     left, right = st.columns([0.48, 0.52], gap="large")
 
@@ -1135,12 +1378,22 @@ def main() -> None:
         st.session_state.raw_text = raw_text
 
         parse_result = parse_input(raw_text, defaults)
+        routing_decisions = route_tasks(parse_result, status_map, bucket_map, known_titles)
         validation_errors = validate_execution(parse_result)
 
         if parse_result.warnings:
             st.warning("\n".join(parse_result.warnings))
         if validation_errors:
             st.error("\n".join(validation_errors))
+
+        routing_json = routing_decisions_json(routing_decisions)
+        if routing_json:
+            with st.expander("Routing decisions JSON", expanded=True):
+                st.json(routing_json)
+                if any(decision["action_type"] == "create_project" for decision in routing_json):
+                    st.info("Create-project decisions are emitted as commands. Review them before creating a new ProofHub project manually or via a project-creation integration.")
+                if any(decision["action_type"] == "update_existing" for decision in routing_json):
+                    st.info("Update-existing decisions require a known ProofHub task ID before the app can safely update instead of duplicate.")
 
         preview_rows = flatten_preview(parse_result.tasks, status_map)
         if preview_rows:
@@ -1186,16 +1439,20 @@ def main() -> None:
                     error_log("Connection", "ProofHub API key is required.", None, ""),
                 )
             else:
+                executable_parse_result, route_logs = prepare_executable_parse_result(parse_result, routing_decisions)
+                if not executable_parse_result.tasks:
+                    st.session_state.run_logs = route_logs + st.session_state.run_logs
+                    st.rerun()
                 client = ProofHubClient(api_key_for_client, base_url, auth_header, company_url)
                 logs = execute_tasks(
                     client,
-                    parse_result,
+                    executable_parse_result,
                     status_map,
                     create_endpoint,
                     create_subtask_endpoint,
                     update_endpoint,
                 )
-                st.session_state.run_logs = logs + st.session_state.run_logs
+                st.session_state.run_logs = route_logs + logs + st.session_state.run_logs
             st.rerun()
 
     st.divider()
