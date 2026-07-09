@@ -165,6 +165,17 @@ class ProofHubClient:
         )
         return self._request("POST", path, json_body=payload)
 
+    def list_subtasks(
+        self,
+        project_id: str,
+        tasklist_id: str,
+        task_id: str,
+        list_subtasks_endpoint: str,
+    ) -> list[dict[str, Any]]:
+        path = list_subtasks_endpoint.format(project_id=project_id, tasklist_id=tasklist_id, task_id=task_id)
+        response = self._request("GET", path)
+        return normalize_task_records(response)
+
     def update_task(
         self,
         project_id: str,
@@ -812,6 +823,23 @@ def task_record_id(record: dict[str, Any]) -> str | None:
     return str(task_id) if task_id else None
 
 
+def existing_subtasks_by_title(
+    client: ProofHubClient,
+    project_id: str,
+    tasklist_id: str,
+    parent_id: str,
+    list_subtasks_endpoint: str,
+) -> dict[str, str]:
+    subtasks = client.list_subtasks(project_id, tasklist_id, parent_id, list_subtasks_endpoint)
+    matches: dict[str, str] = {}
+    for record in subtasks:
+        title = normalized_title(task_record_title(record))
+        task_id = task_record_id(record)
+        if title and task_id and title not in matches:
+            matches[title] = task_id
+    return matches
+
+
 def label_map_from_records(records: Any) -> dict[str, int]:
     if not isinstance(records, list):
         records = normalize_label_records(records)
@@ -1195,6 +1223,7 @@ def execute_tasks(
     create_endpoint: str,
     create_subtask_endpoint: str,
     update_endpoint: str,
+    skip_matching_subtasks: bool = True,
 ) -> list[dict[str, Any]]:
     logs: list[dict[str, Any]] = []
     for task in parse_result.tasks:
@@ -1205,6 +1234,16 @@ def execute_tasks(
                 response = client.create_task(task.project_id, task.tasklist_id, payload, create_endpoint)
                 created_id = extract_task_id(response)
                 logs.append(success_log("created_task", task.title, response, task.project_id, task.tasklist_id))
+                existing_subtasks: dict[str, str] = {}
+                if skip_matching_subtasks and created_id:
+                    existing_subtasks = load_existing_subtasks_for_parent(
+                        client,
+                        task.project_id,
+                        task.tasklist_id,
+                        created_id,
+                        create_subtask_endpoint,
+                        logs,
+                    )
                 for subtask in task.subtasks:
                     subtask.project_id = subtask.project_id or task.project_id
                     subtask.tasklist_id = subtask.tasklist_id or task.tasklist_id
@@ -1212,6 +1251,10 @@ def execute_tasks(
                     sub_payload = build_payload(subtask, status_map, label_map, infer_task_labels(subtask))
                     if not subtask.parent_id:
                         logs.append(error_log(subtask.title, "Parent task ID was not present in the create response.", None, ""))
+                        continue
+                    existing_subtask_id = existing_subtasks.get(normalized_title(subtask.title))
+                    if existing_subtask_id:
+                        logs.append(skipped_subtask_log(subtask.title, task.title, existing_subtask_id))
                         continue
                     response = client.create_subtask(
                         subtask.project_id,
@@ -1240,11 +1283,25 @@ def execute_tasks(
                     update_endpoint,
                 )
                 logs.append(success_log("updated_task", task.title, response, task.project_id, task.tasklist_id))
+                existing_subtasks: dict[str, str] = {}
+                if skip_matching_subtasks:
+                    existing_subtasks = load_existing_subtasks_for_parent(
+                        client,
+                        task.project_id,
+                        task.tasklist_id,
+                        task.task_id,
+                        create_subtask_endpoint,
+                        logs,
+                    )
                 for subtask in task.subtasks:
                     subtask.project_id = subtask.project_id or task.project_id
                     subtask.tasklist_id = subtask.tasklist_id or task.tasklist_id
                     subtask.parent_id = subtask.parent_id or task.task_id
                     sub_payload = build_payload(subtask, status_map, label_map, infer_task_labels(subtask))
+                    existing_subtask_id = existing_subtasks.get(normalized_title(subtask.title))
+                    if existing_subtask_id:
+                        logs.append(skipped_subtask_log(subtask.title, task.title, existing_subtask_id))
+                        continue
                     response = client.create_subtask(
                         subtask.project_id,
                         subtask.tasklist_id,
@@ -1310,6 +1367,21 @@ def apply_existing_task_matches(
                 }
             )
     return logs
+
+
+def load_existing_subtasks_for_parent(
+    client: ProofHubClient,
+    project_id: str,
+    tasklist_id: str,
+    parent_id: str,
+    list_subtasks_endpoint: str,
+    logs: list[dict[str, Any]],
+) -> dict[str, str]:
+    try:
+        return existing_subtasks_by_title(client, project_id, tasklist_id, parent_id, list_subtasks_endpoint)
+    except ProofHubError as exc:
+        logs.append(error_log("Existing subtask lookup", str(exc), exc.status_code, exc.body))
+        return {}
 
 
 def execute_project_commands(
@@ -1519,6 +1591,14 @@ def label_success_log(title: str, label_id: str, response: dict[str, Any]) -> di
         "level": "success",
         "message": f'Label "{title}" is ready in ProofHub (label ID {label_id}).',
         "response": response,
+    }
+
+
+def skipped_subtask_log(title: str, parent_title: str, subtask_id: str) -> dict[str, Any]:
+    return {
+        "time": now_local().strftime("%H:%M:%S"),
+        "level": "info",
+        "message": f'Existing subtask matched: "{title}" already exists under "{parent_title}" (subtask ID {subtask_id}); skipped duplicate creation.',
     }
 
 
@@ -1969,6 +2049,7 @@ def main() -> None:
     create_roadmap_tasklists = True
     auto_create_missing_labels = False
     update_matching_titles = True
+    skip_matching_subtasks = True
 
     with st.expander("Configure", expanded=False):
         cfg_left, cfg_right = st.columns(2, gap="large")
@@ -1996,6 +2077,7 @@ def main() -> None:
             create_roadmap_tasklists = st.toggle("Create roadmap tasklists", value=True)
             auto_create_missing_labels = st.toggle("Auto-create missing labels", value=False)
             update_matching_titles = st.toggle("Update matching task titles", value=True)
+            skip_matching_subtasks = st.toggle("Skip matching subtasks", value=True)
 
     if auth_header == "Authorization" and api_key and not api_key.lower().startswith("bearer "):
         api_key_for_client = f"Bearer {api_key}"
@@ -2195,6 +2277,7 @@ def main() -> None:
                         create_endpoint,
                         create_subtask_endpoint,
                         update_endpoint,
+                        skip_matching_subtasks,
                     )
                 else:
                     logs = []

@@ -88,6 +88,43 @@ Status: completed
         self.assertEqual(parse_result.tasks[0].task_id, "54321")
         self.assertEqual(logs[0]["level"], "info")
 
+    def test_existing_subtask_title_match_is_skipped(self) -> None:
+        parse_result = app.parse_input(
+            """Task: Google Search Console Module Integration
+Status: completed
+
+Subtask: Document functional capabilities
+Status: completed
+Due Date: 2026-07-01
+""",
+            DEFAULTS,
+        )
+        parse_result.tasks[0].action = "update"
+        parse_result.tasks[0].task_id = "54321"
+
+        class FakeClient:
+            def update_task(self, project_id, tasklist_id, task_id, payload, update_endpoint):
+                return {"id": task_id}
+
+            def list_subtasks(self, project_id, tasklist_id, task_id, list_subtasks_endpoint):
+                return [{"id": "98765", "title": "Document functional capabilities"}]
+
+            def create_subtask(self, *args, **kwargs):
+                raise AssertionError("duplicate subtask should not be created")
+
+        logs = app.execute_tasks(
+            FakeClient(),
+            parse_result,
+            {},
+            {},
+            "/unused",
+            "/unused",
+            "/unused",
+            True,
+        )
+
+        self.assertTrue(any("skipped duplicate creation" in log["message"] for log in logs))
+
 
 if __name__ == "__main__":
     unittest.main()

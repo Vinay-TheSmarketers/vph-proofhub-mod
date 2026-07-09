@@ -55,6 +55,7 @@ def main() -> int:
     parser.add_argument("--fetch-labels", action="store_true", help="Fetch labels from ProofHub before preview/run.")
     parser.add_argument("--auto-create-missing-labels", action="store_true")
     parser.add_argument("--no-update-matching-titles", action="store_true", help="Create duplicate parent tasks instead of updating title matches.")
+    parser.add_argument("--no-skip-matching-subtasks", action="store_true", help="Create duplicate subtasks even when a title match already exists under the parent.")
     args = parser.parse_args()
 
     raw_text = args.input_file.read_text(encoding="utf-8")
@@ -137,6 +138,7 @@ def main() -> int:
         args.create_task_path,
         args.create_subtask_path,
         args.update_task_path,
+        not args.no_skip_matching_subtasks,
     )
     logs = label_logs + match_logs + logs
     print(json.dumps(logs, indent=2, default=str))
