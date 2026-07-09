@@ -1023,16 +1023,19 @@ def render_brand_shell() -> None:
         <style>
             :root {{
                 --ink: #f6f6f6;
-                --muted: rgba(246, 246, 246, .66);
-                --line: rgba(255, 255, 255, .15);
-                --panel: rgba(7, 7, 7, .72);
-                --panel-soft: rgba(18, 18, 18, .64);
+                --muted: rgba(246, 246, 246, .62);
+                --line: rgba(255, 255, 255, .13);
+                --line-strong: rgba(255, 255, 255, .24);
+                --panel: rgba(13, 13, 13, .76);
+                --panel-soft: rgba(22, 22, 22, .58);
+                --field: rgba(255,255,255,.085);
             }}
 
             .stApp {{
                 color: var(--ink);
                 background:
-                    linear-gradient(90deg, rgba(0,0,0,.84), rgba(0,0,0,.50) 46%, rgba(0,0,0,.70)),
+                    radial-gradient(circle at 86% 78%, rgba(255,255,255,.12), transparent 10%),
+                    linear-gradient(90deg, rgba(0,0,0,.92), rgba(0,0,0,.66) 52%, rgba(0,0,0,.90)),
                     url("{bg}");
                 background-size: cover;
                 background-position: center;
@@ -1048,54 +1051,61 @@ def render_brand_shell() -> None:
             }}
 
             [data-testid="stSidebar"] {{
-                background: rgba(0, 0, 0, .88);
-                border-right: 1px solid var(--line);
+                display: none;
             }}
 
-            [data-testid="stSidebar"] * {{
-                color: var(--ink);
+            [data-testid="collapsedControl"] {{
+                display: none;
             }}
 
             .block-container {{
-                max-width: 1440px;
-                padding-top: 2.2rem;
-                padding-bottom: 3rem;
+                max-width: 930px;
+                padding-top: 2rem;
+                padding-bottom: 2rem;
             }}
 
             .brand-hero {{
                 display: grid;
-                grid-template-columns: 76px 1fr;
+                grid-template-columns: 132px 1fr auto;
                 align-items: center;
-                gap: 20px;
-                margin-bottom: 24px;
-                padding: 18px 20px;
-                border: 1px solid var(--line);
-                background: linear-gradient(135deg, rgba(0,0,0,.82), rgba(20,20,20,.52));
-                backdrop-filter: blur(18px);
+                gap: 14px;
+                margin: 0 auto 22px;
+                padding: 16px;
+                border: 1px solid var(--line-strong);
+                border-radius: 10px;
+                background: linear-gradient(135deg, rgba(20,20,20,.82), rgba(7,7,7,.72));
+                box-shadow: 0 22px 70px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.08);
+                backdrop-filter: blur(22px);
             }}
 
             .brand-logo {{
-                width: 70px;
-                height: 70px;
-                border: 1px solid rgba(255,255,255,.22);
+                width: 118px;
+                height: 82px;
+                border: 0;
                 background: #050505 url("{logo}") center/cover no-repeat;
             }}
 
             .brand-kicker {{
-                margin: 0 0 6px;
-                color: var(--muted);
+                display: inline-flex;
+                margin: 0 0 8px;
+                padding: 4px 8px;
+                color: rgba(255,255,255,.78);
+                border: 1px solid rgba(255,255,255,.18);
+                border-radius: 5px;
+                background: rgba(255,255,255,.10);
                 font-size: 12px;
                 line-height: 1;
-                letter-spacing: .08em;
+                letter-spacing: 0;
                 text-transform: uppercase;
             }}
 
             .brand-title {{
                 margin: 0;
                 color: var(--ink);
-                font-size: 34px;
-                line-height: 1.05;
-                font-weight: 650;
+                font-family: Georgia, "Times New Roman", serif;
+                font-size: 35px;
+                line-height: 1;
+                font-weight: 500;
                 letter-spacing: 0;
             }}
 
@@ -1106,6 +1116,29 @@ def render_brand_shell() -> None:
                 line-height: 1.45;
             }}
 
+            .configure-pill {{
+                align-self: start;
+                padding: 6px 11px;
+                color: #fff;
+                border: 1px solid rgba(255,255,255,.22);
+                border-radius: 6px;
+                background: rgba(0,0,0,.42);
+                font-size: 12px;
+            }}
+
+            .console-footer {{
+                margin: 22px 0 0;
+                text-align: center;
+                color: rgba(255,255,255,.60);
+                font-size: 12px;
+            }}
+
+            .mini-icons {{
+                margin-bottom: 8px;
+                letter-spacing: 7px;
+                color: rgba(255,255,255,.72);
+            }}
+
             h1, h2, h3, .stMarkdown, label, p, span {{
                 color: var(--ink);
             }}
@@ -1113,6 +1146,35 @@ def render_brand_shell() -> None:
             h2, h3 {{
                 letter-spacing: 0;
                 font-weight: 560;
+            }}
+
+            div[data-testid="stVerticalBlock"] > div:has(> [data-testid="stMarkdownContainer"] .panel-title) {{
+                padding: 14px;
+                border: 1px solid var(--line-strong);
+                border-radius: 10px;
+                background: linear-gradient(180deg, rgba(24,24,24,.76), rgba(9,9,9,.72));
+                box-shadow: 0 16px 48px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);
+                backdrop-filter: blur(20px);
+            }}
+
+            .panel-title {{
+                margin: 0 0 12px;
+                color: rgba(255,255,255,.92);
+                font-size: 12px;
+                font-weight: 650;
+                line-height: 1;
+                letter-spacing: .02em;
+                text-transform: uppercase;
+            }}
+
+            .active-meta {{
+                margin-top: 11px;
+                padding: 12px;
+                border-radius: 8px;
+                background: rgba(255,255,255,.08);
+                color: rgba(255,255,255,.78);
+                font-size: 12px;
+                line-height: 1.45;
             }}
 
             div[data-testid="stVerticalBlockBorderWrapper"],
@@ -1126,8 +1188,9 @@ def render_brand_shell() -> None:
 
             textarea, input, select, [data-baseweb="select"] > div {{
                 color: #f7f7f7 !important;
-                background: rgba(0,0,0,.66) !important;
+                background: var(--field) !important;
                 border-color: rgba(255,255,255,.22) !important;
+                border-radius: 7px !important;
             }}
 
             textarea:focus, input:focus {{
@@ -1136,7 +1199,8 @@ def render_brand_shell() -> None:
             }}
 
             .stButton > button {{
-                border-radius: 0;
+                min-height: 38px;
+                border-radius: 7px;
                 border: 1px solid rgba(255,255,255,.28);
                 color: #fff;
                 background: rgba(255,255,255,.06);
@@ -1150,15 +1214,51 @@ def render_brand_shell() -> None:
             }}
 
             .stButton > button[kind="primary"] {{
-                color: #050505;
-                background: #f7f7f7;
-                border-color: #f7f7f7;
+                color: #fff;
+                background: linear-gradient(180deg, #5fa8f2, #2f74bd);
+                border-color: rgba(255,255,255,.34);
+                box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 14px 30px rgba(39,113,188,.24);
             }}
 
             .stAlert {{
-                border-radius: 0;
+                border-radius: 8px;
                 border: 1px solid var(--line);
                 background: rgba(0,0,0,.72);
+            }}
+
+            div[data-testid="stTextArea"] textarea {{
+                min-height: 84px;
+            }}
+
+            .execution-row {{
+                display: flex;
+                align-items: flex-start;
+                gap: 8px;
+                padding: 8px 9px;
+                border: 1px solid rgba(255,255,255,.11);
+                border-bottom: 0;
+                background: rgba(255,255,255,.045);
+                color: rgba(255,255,255,.84);
+                font-size: 12px;
+                line-height: 1.35;
+            }}
+
+            .execution-row:last-child {{
+                border-bottom: 1px solid rgba(255,255,255,.11);
+                border-radius: 0 0 7px 7px;
+            }}
+
+            .execution-icon {{
+                width: 17px;
+                height: 17px;
+                display: inline-grid;
+                place-items: center;
+                flex: 0 0 auto;
+                border-radius: 4px;
+                background: #fff;
+                color: #0a0a0a;
+                font-size: 11px;
+                font-weight: 700;
             }}
 
             code, pre {{
@@ -1168,12 +1268,15 @@ def render_brand_shell() -> None:
 
             @media (max-width: 760px) {{
                 .brand-hero {{
-                    grid-template-columns: 54px 1fr;
+                    grid-template-columns: 72px 1fr;
                     padding: 14px;
                 }}
                 .brand-logo {{
-                    width: 52px;
-                    height: 52px;
+                    width: 66px;
+                    height: 54px;
+                }}
+                .configure-pill {{
+                    display: none;
                 }}
                 .brand-title {{
                     font-size: 24px;
@@ -1189,9 +1292,10 @@ def render_brand_shell() -> None:
             <div class="brand-logo" aria-label="Brand mark"></div>
             <div>
                 <p class="brand-kicker">ProofHub automation console</p>
-                <h1 class="brand-title">Task Orchestrator</h1>
-                <p class="brand-subtitle">Transform structured work notes into clean ProofHub tasks, subtasks, dates, and execution logs.</p>
+                <h1 class="brand-title">The Task Orchestrator</h1>
+                <p class="brand-subtitle">Obsessed with creating <em>excellent</em> tasks in any format.</p>
             </div>
+            <div class="configure-pill">Configure</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1199,27 +1303,75 @@ def render_brand_shell() -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="ProofHub Task Orchestrator", page_icon="PH", layout="wide")
+    st.set_page_config(
+        page_title="ProofHub Task Orchestrator",
+        page_icon="PH",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
     init_state()
     render_brand_shell()
 
-    with st.sidebar:
-        st.header("Connection")
-        secret_api_key = default_secret("PROOFHUB_API_KEY")
-        api_key = st.text_input("ProofHub API key", value=secret_api_key, type="password")
-        base_url = st.text_input("API base URL", value=DEFAULT_BASE_URL)
-        company_url = st.text_input("Company URL", value=DEFAULT_COMPANY_URL)
-        auth_header = st.selectbox("API key header", ["X-API-KEY", "X-Auth-Token", "Authorization"])
-        account_endpoint = st.text_input("Account check path", value=DEFAULT_CONNECTION_TEST_PATH)
-        if auth_header == "Authorization" and api_key and not api_key.lower().startswith("bearer "):
-            api_key_for_client = f"Bearer {api_key}"
-        else:
-            api_key_for_client = api_key
-        if st.button("Check API connection", width="stretch"):
+    secret_api_key = default_secret("PROOFHUB_API_KEY")
+    api_key = secret_api_key
+    base_url = DEFAULT_BASE_URL
+    company_url = DEFAULT_COMPANY_URL
+    auth_header = "X-API-KEY"
+    account_endpoint = DEFAULT_CONNECTION_TEST_PATH
+    default_project_id = DEFAULT_PROJECT_ID
+    default_tasklist_id = DEFAULT_TASKLIST_ID
+    dry_run = True
+    raw_status_map = "todo=To Do\nin progress=In Progress\ndone=Completed\nblocked=Blocked"
+    raw_bucket_map = (
+        f"default={DEFAULT_TASKLIST_ID}\n"
+        f"seo={DEFAULT_TASKLIST_ID}\n"
+        "ui/ux=\nfrontend=\nbackend=\nqa=\nsecurity=\ndeployment=\nvoice=\noperations="
+    )
+    known_work_titles = ""
+    create_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks"
+    create_subtask_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}/subtasks"
+    update_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}"
+
+    with st.expander("Configure", expanded=False):
+        cfg_left, cfg_right = st.columns(2, gap="large")
+        with cfg_left:
+            api_key = st.text_input("ProofHub API key", value=secret_api_key, type="password")
+            base_url = st.text_input("API base URL", value=DEFAULT_BASE_URL)
+            company_url = st.text_input("Company URL", value=DEFAULT_COMPANY_URL)
+            auth_header = st.selectbox("API key header", ["X-API-KEY", "X-Auth-Token", "Authorization"])
+            account_endpoint = st.text_input("Account check path", value=DEFAULT_CONNECTION_TEST_PATH)
+            dry_run = st.toggle("Dry run", value=True, help="Preview parsing and payloads without calling ProofHub.")
+        with cfg_right:
+            raw_bucket_map = st.text_area("Bucket map", value=raw_bucket_map, height=156)
+            known_work_titles = st.text_area("Known ongoing work", value="", height=92)
+            raw_status_map = st.text_area("Status map", value=raw_status_map, height=92)
+            create_endpoint = st.text_input("Create task path", value=create_endpoint)
+            create_subtask_endpoint = st.text_input("Create subtask path", value=create_subtask_endpoint)
+            update_endpoint = st.text_input("Update task path", value=update_endpoint)
+
+    if auth_header == "Authorization" and api_key and not api_key.lower().startswith("bearer "):
+        api_key_for_client = f"Bearer {api_key}"
+    else:
+        api_key_for_client = api_key
+
+    defaults = {"project_id": default_project_id.strip(), "tasklist_id": default_tasklist_id.strip()}
+    status_map = parse_status_map(raw_status_map)
+    bucket_map = parse_bucket_map(raw_bucket_map, default_tasklist_id.strip())
+    known_titles = [line.strip() for line in known_work_titles.splitlines() if line.strip()]
+
+    left, right = st.columns([0.33, 0.67], gap="large")
+
+    with left:
+        st.markdown('<p class="panel-title">Project Setup</p>', unsafe_allow_html=True)
+        default_project_id = st.text_input("Project ID", value=DEFAULT_PROJECT_ID, label_visibility="visible")
+        default_tasklist_id = st.text_input("Tasklist ID", value=DEFAULT_TASKLIST_ID, label_visibility="visible")
+        defaults = {"project_id": default_project_id.strip(), "tasklist_id": default_tasklist_id.strip()}
+        bucket_map = parse_bucket_map(raw_bucket_map, default_tasklist_id.strip())
+        if st.button("API Connection Check", width="stretch"):
             if not api_key_for_client:
                 st.session_state.connection_result = {
                     "level": "error",
-                    "message": "Enter a ProofHub API key before checking the connection.",
+                    "message": "Enter a ProofHub API key in Configure.",
                 }
             else:
                 client = ProofHubClient(api_key_for_client, base_url, auth_header, company_url)
@@ -1231,9 +1383,8 @@ def main() -> None:
                         "message": (
                             f"Connected to {account_name}."
                             if account_name
-                            else "Connected. Account name was not present in this response."
+                            else "Connected to ProofHub."
                         ),
-                        "account_name": account_name,
                         "response": response,
                     }
                 except ProofHubError as exc:
@@ -1243,179 +1394,51 @@ def main() -> None:
                         "status_code": exc.status_code,
                         "body": exc.body,
                     }
-
+        st.caption("Status map")
+        with st.expander("Manage Status Map"):
+            st.code(raw_status_map, language="text")
+        st.markdown(
+            f"""
+            <div class="active-meta">
+                Active Project: {default_project_id}<br>
+                Active Tasklist: {default_tasklist_id}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         connection_result = st.session_state.connection_result
         if connection_result:
             if connection_result["level"] == "success":
                 st.success(connection_result["message"])
-                with st.expander("Connection response"):
-                    st.json(connection_result.get("response", {}))
             else:
                 st.error(connection_result["message"])
-                if connection_result.get("body"):
-                    with st.expander("Error response"):
-                        st.code(connection_result["body"])
-
-        st.header("Defaults")
-        default_project_id = st.text_input("Project ID", value=DEFAULT_PROJECT_ID)
-        default_tasklist_id = st.text_input("Tasklist ID", value=DEFAULT_TASKLIST_ID)
-        dry_run = st.toggle("Dry run", value=True, help="Preview parsing and payloads without calling ProofHub.")
-
-        st.header("Routing")
-        raw_bucket_map = st.text_area(
-            "Bucket map",
-            value=(
-                f"default={DEFAULT_TASKLIST_ID}\n"
-                f"seo={DEFAULT_TASKLIST_ID}\n"
-                "ui/ux=\n"
-                "frontend=\n"
-                "backend=\n"
-                "qa=\n"
-                "security=\n"
-                "deployment=\n"
-                "voice=\n"
-                "operations="
-            ),
-            height=190,
-            help="Map semantic bucket names to existing ProofHub tasklist IDs. Blank lines are ignored.",
-        )
-        known_work_titles = st.text_area(
-            "Known ongoing work",
-            value="",
-            height=100,
-            help="Optional: one existing parent task/project title per line for daily continuity matching.",
-        )
-
-        st.header("Endpoints")
-        create_endpoint = st.text_input(
-            "Create task path",
-            value="/projects/{project_id}/todolists/{tasklist_id}/tasks",
-        )
-        create_subtask_endpoint = st.text_input(
-            "Create subtask path",
-            value="/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}/subtasks",
-        )
-        update_endpoint = st.text_input(
-            "Update task path",
-            value="/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}",
-        )
-
-        st.header("Status map")
-        raw_status_map = st.text_area(
-            "One mapping per line",
-            value="todo=To Do\nin progress=In Progress\ndone=Completed\nblocked=Blocked",
-            height=120,
-        )
-
-    defaults = {"project_id": default_project_id.strip(), "tasklist_id": default_tasklist_id.strip()}
-    status_map = parse_status_map(raw_status_map)
-    bucket_map = parse_bucket_map(raw_bucket_map, default_tasklist_id.strip())
-    known_titles = [line.strip() for line in known_work_titles.splitlines() if line.strip()]
-
-    left, right = st.columns([0.48, 0.52], gap="large")
-
-    with left:
-        st.subheader("Assistant")
-        for message in st.session_state.messages:
-            render_chat_message(message["role"], message["content"])
-
-        prompt = st.chat_input("Describe tasks or updates...")
-        if prompt:
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            st.session_state.raw_text = merge_raw_text(st.session_state.raw_text, prompt)
-            parse_result = parse_input(st.session_state.raw_text, defaults)
-            reply = assistant_reply(parse_result)
-            st.session_state.messages.append({"role": "assistant", "content": reply})
-            st.rerun()
 
     with right:
-        st.subheader("Raw task block")
-        with st.expander("Provided task file", expanded=True):
-            provided_task_file = st.text_input("Task file path", value=DEFAULT_PROVIDED_TASK_FILE)
-            if st.button("Load provided task text", width="stretch"):
+        st.markdown('<p class="panel-title">Task Assistant</p>', unsafe_allow_html=True)
+        input_col, button_col = st.columns([0.58, 0.42], gap="medium")
+        with input_col:
+            raw_text = st.text_area(
+                "Daily work notes",
+                value=st.session_state.raw_text,
+                height=92,
+                label_visibility="collapsed",
+                placeholder="Describe tasks or updates...",
+            )
+        with button_col:
+            st.write("")
+            run_clicked = st.button("Generate & Orchestrate", type="primary", width="stretch", disabled=not raw_text.strip())
+            if st.button("Load Sample Text", width="stretch"):
                 try:
-                    st.session_state.raw_text = load_text_file(provided_task_file)
-                    st.success("Loaded provided task text.")
+                    st.session_state.raw_text = load_text_file(DEFAULT_PROVIDED_TASK_FILE)
                     st.rerun()
                 except OSError as exc:
-                    st.error(f"Could not load task file: {exc}")
-        with st.expander("Recommended ProofHub format", expanded=True):
-            st.code(
-                "Task: Parent task name\n"
-                "Description: Clear task details\n"
-                "Status: todo | in progress | done | blocked\n"
-                "Priority: low | normal | high\n"
-                "Start: today\n"
-                "Due: tomorrow 5pm\n"
-                "Assignees: 12345, 67890\n"
-                "Labels: SEO, Phase 1\n"
-                "Subtasks:\n"
-                "- Subtask title status: in progress due tomorrow\n"
-                "- Another subtask status: done\n\n"
-                "Update #12345\n"
-                "Status: done\n"
-                "Notes: What changed",
-                language="text",
-            )
-            st.caption("Leading bullets or markers such as *, #, -, and _ are removed from task titles automatically.")
-        raw_text = st.text_area(
-            "Structured input",
-            value=st.session_state.raw_text,
-            height=360,
-            placeholder=(
-                "Create onboarding checklist\n"
-                "Due: tomorrow 5pm\n"
-                "Status: in progress\n"
-                "Priority: high\n"
-                "Subtasks:\n"
-                "- Draft checklist due tomorrow 2pm\n"
-                "- Review with ops status: blocked\n\n"
-                "Update #123\n"
-                "Status: done\n"
-                "Notes: shipped to client"
-            ),
-        )
+                    st.session_state.run_logs.insert(0, error_log("Sample text", str(exc), None, ""))
         st.session_state.raw_text = raw_text
 
         parse_result = parse_input(raw_text, defaults)
         routing_decisions = route_tasks(parse_result, status_map, bucket_map, known_titles)
         validation_errors = validate_execution(parse_result)
-
-        if parse_result.warnings:
-            st.warning("\n".join(parse_result.warnings))
-        if validation_errors:
-            st.error("\n".join(validation_errors))
-
-        routing_json = routing_decisions_json(routing_decisions)
-        if routing_json:
-            with st.expander("Routing decisions JSON", expanded=True):
-                st.json(routing_json)
-                if any(decision["action_type"] == "create_project" for decision in routing_json):
-                    st.info("Create-project decisions are emitted as commands. Review them before creating a new ProofHub project manually or via a project-creation integration.")
-                if any(decision["action_type"] == "update_existing" for decision in routing_json):
-                    st.info("Update-existing decisions require a known ProofHub task ID before the app can safely update instead of duplicate.")
-
         preview_rows = flatten_preview(parse_result.tasks, status_map)
-        if preview_rows:
-            st.dataframe(
-                [
-                    {key: value for key, value in row.items() if key != "payload"}
-                    for row in preview_rows
-                ],
-                width="stretch",
-                hide_index=True,
-            )
-            with st.expander("Payload preview"):
-                st.json([row["payload"] for row in preview_rows])
-        else:
-            st.info("Paste a task block or use the chat to generate one.")
-
-        run_col, clear_col = st.columns([0.7, 0.3])
-        with run_col:
-            run_clicked = st.button("Run orchestration", type="primary", disabled=not preview_rows)
-        with clear_col:
-            if st.button("Clear log"):
-                st.session_state.run_logs = []
 
         if run_clicked:
             if dry_run:
@@ -1424,43 +1447,91 @@ def main() -> None:
                     {
                         "time": now_local().strftime("%H:%M:%S"),
                         "level": "info",
-                        "message": f"Dry run passed for {len(preview_rows)} payloads.",
-                        "response": [row["payload"] for row in preview_rows],
+                        "message": f"Dry run prepared {len(preview_rows)} ProofHub payloads.",
+                        "response": {
+                            "routing_decisions": routing_decisions_json(routing_decisions),
+                            "payloads": [row["payload"] for row in preview_rows],
+                        },
                     },
                 )
             elif validation_errors:
-                st.session_state.run_logs.insert(
-                    0,
-                    error_log("Validation", "Fix validation errors before running.", None, ""),
-                )
+                st.session_state.run_logs.insert(0, error_log("Validation", "Fix validation errors before running.", None, ""))
             elif not api_key_for_client:
-                st.session_state.run_logs.insert(
-                    0,
-                    error_log("Connection", "ProofHub API key is required.", None, ""),
-                )
+                st.session_state.run_logs.insert(0, error_log("Connection", "ProofHub API key is required.", None, ""))
             else:
                 executable_parse_result, route_logs = prepare_executable_parse_result(parse_result, routing_decisions)
-                if not executable_parse_result.tasks:
-                    st.session_state.run_logs = route_logs + st.session_state.run_logs
-                    st.rerun()
-                client = ProofHubClient(api_key_for_client, base_url, auth_header, company_url)
-                logs = execute_tasks(
-                    client,
-                    executable_parse_result,
-                    status_map,
-                    create_endpoint,
-                    create_subtask_endpoint,
-                    update_endpoint,
-                )
+                if executable_parse_result.tasks:
+                    client = ProofHubClient(api_key_for_client, base_url, auth_header, company_url)
+                    logs = execute_tasks(
+                        client,
+                        executable_parse_result,
+                        status_map,
+                        create_endpoint,
+                        create_subtask_endpoint,
+                        update_endpoint,
+                    )
+                else:
+                    logs = []
                 st.session_state.run_logs = route_logs + logs + st.session_state.run_logs
             st.rerun()
 
-    st.divider()
-    st.subheader("Live log")
-    if not st.session_state.run_logs:
-        st.caption("No runs yet.")
-    for item in st.session_state.run_logs:
-        render_log_item(item)
+        st.markdown('<p class="panel-title">Execution Results</p>', unsafe_allow_html=True)
+        if parse_result.warnings:
+            st.warning("\n".join(parse_result.warnings))
+        if validation_errors:
+            st.error("\n".join(validation_errors))
+
+        if st.session_state.run_logs:
+            for item in st.session_state.run_logs[:6]:
+                icon = "P" if item.get("level") != "error" else "!"
+                st.markdown(
+                    f"""
+                    <div class="execution-row">
+                        <span class="execution-icon">{icon}</span>
+                        <span>[{item.get('time', '')}] {item.get('message', '')}</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.markdown(
+                """
+                <div class="execution-row">
+                    <span class="execution-icon">P</span>
+                    <span>No execution yet. Paste notes and generate an orchestration preview.</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        with st.expander("Routing JSON & Payload Preview", expanded=False):
+            routing_json = routing_decisions_json(routing_decisions)
+            st.json(routing_json)
+            if preview_rows:
+                st.dataframe(
+                    [{key: value for key, value in row.items() if key != "payload"} for row in preview_rows],
+                    width="stretch",
+                    hide_index=True,
+                )
+                st.json([row["payload"] for row in preview_rows])
+
+        clear_col, details_col = st.columns([0.3, 0.7])
+        with clear_col:
+            if st.button("Clear Results", width="stretch"):
+                st.session_state.run_logs = []
+                st.rerun()
+        with details_col:
+            st.caption(f"{len(parse_result.tasks)} parent tasks | {sum(len(task.subtasks) for task in parse_result.tasks)} subtasks | dry run {'on' if dry_run else 'off'}")
+
+    st.markdown(
+        """
+        <div class="console-footer">
+            <div class="mini-icons">● ◐ ×</div>
+            A minimal solution by Vinay Jain.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def merge_raw_text(existing: str, prompt: str) -> str:
