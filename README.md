@@ -90,9 +90,20 @@ Supported `action_type` values:
 
 - `create_task`: safe to create in the selected ProofHub tasklist.
 - `update_existing`: daily continuity/update intent; requires a concrete `Update #TASK_ID` before the app updates ProofHub.
-- `create_project`: standalone mini-app/tool scope; emitted as a project-creation command and not added to the active tasklist.
+- `create_project`: standalone mini-app/tool scope; creates a separate ProofHub project in live mode when **Create standalone projects** is enabled.
 
-Use the sidebar **Bucket map** to connect semantic names like `ui/ux`, `backend`, `qa`, `security`, and `voice` to real ProofHub tasklist IDs.
+Use **Bucket map** to connect semantic names like `ui/ux`, `backend`, `qa`, `security`, and `voice` to real ProofHub tasklist IDs. Blank bucket IDs are ignored, so any unmapped work falls back to the default tasklist.
+
+Use **Label map** to connect semantic labels to real ProofHub label IDs, for example:
+
+```text
+ui/ux=12254912
+backend=12254913
+seo=12254914
+qa=12254915
+```
+
+When **Auto-create missing labels** is enabled, the app reads `/labels` and creates missing inferred labels before sending task payloads.
 
 ## ProofHub settings
 
@@ -103,6 +114,9 @@ The app keeps the ProofHub API key in a password field and never stores it in th
 - company URL
 - account check path
 - create task endpoint template
+- create project endpoint
+- create tasklist endpoint
+- labels endpoint
 - update task endpoint template
 - default project and tasklist IDs
 - workflow status mappings

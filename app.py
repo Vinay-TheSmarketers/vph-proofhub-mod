@@ -110,6 +110,18 @@ class ProofHubClient:
         path = create_endpoint.format(project_id=project_id, tasklist_id=tasklist_id)
         return self._request("POST", path, json_body=payload)
 
+    def create_project(self, payload: dict[str, Any], create_project_endpoint: str) -> dict[str, Any]:
+        return self._request("POST", create_project_endpoint, json_body=payload)
+
+    def create_tasklist(
+        self,
+        project_id: str,
+        payload: dict[str, Any],
+        create_tasklist_endpoint: str,
+    ) -> dict[str, Any]:
+        path = create_tasklist_endpoint.format(project_id=project_id)
+        return self._request("POST", path, json_body=payload)
+
     def create_subtask(
         self,
         project_id: str,
@@ -139,7 +151,17 @@ class ProofHubClient:
     def check_connection(self, account_endpoint: str) -> dict[str, Any]:
         return self._request("GET", account_endpoint)
 
-    def _request(self, method: str, path: str, json_body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def list_labels(self, labels_endpoint: str) -> list[dict[str, Any]]:
+        response = self._request("GET", labels_endpoint)
+        if isinstance(response, list):
+            return response
+        data = response.get("data") if isinstance(response, dict) else None
+        return data if isinstance(data, list) else []
+
+    def create_label(self, name: str, create_label_endpoint: str) -> dict[str, Any]:
+        return self._request("POST", create_label_endpoint, json_body={"name": name})
+
+    def _request(self, method: str, path: str, json_body: dict[str, Any] | None = None) -> Any:
         url = f"{self.base_url}/{path.lstrip('/')}"
         try:
             response = self.session.request(
@@ -573,7 +595,12 @@ def parse_input(raw_text: str, defaults: dict[str, Any]) -> ParseResult:
     return ParseResult(tasks=tasks, warnings=warnings, defaults=defaults)
 
 
-def build_payload(task: ParsedTask, status_map: dict[str, str]) -> dict[str, Any]:
+def build_payload(
+    task: ParsedTask,
+    status_map: dict[str, str],
+    label_map: dict[str, int] | None = None,
+    inferred_labels: list[str] | None = None,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "title": task.title,
     }
@@ -583,7 +610,7 @@ def build_payload(task: ParsedTask, status_map: dict[str, str]) -> dict[str, Any
         payload["due_date"] = task.due_at.date().isoformat()
     if task.start_at:
         payload["start_date"] = task.start_at.date().isoformat()
-    numeric_labels = numeric_ids(task.labels)
+    numeric_labels = resolve_label_ids(task.labels + (inferred_labels or []), label_map or {})
     if numeric_labels:
         payload["labels"] = numeric_labels
     numeric_assignees = numeric_ids(task.assignee_ids)
@@ -596,6 +623,20 @@ def build_payload(task: ParsedTask, status_map: dict[str, str]) -> dict[str, Any
         elif lowered_status in {"todo", "to do", "in progress", "blocked"}:
             payload["completed"] = False
     return payload
+
+
+def resolve_label_ids(values: list[str], label_map: dict[str, int]) -> list[int]:
+    ids: list[int] = []
+    seen: set[int] = set()
+    for value in values:
+        clean = value.strip()
+        if not clean:
+            continue
+        label_id = int(clean) if clean.isdigit() else label_map.get(clean.lower())
+        if label_id and label_id not in seen:
+            ids.append(label_id)
+            seen.add(label_id)
+    return ids
 
 
 def numeric_ids(values: list[str]) -> list[int]:
@@ -621,6 +662,20 @@ def parse_bucket_map(raw_map: str, default_tasklist_id: str) -> dict[str, str]:
     return buckets
 
 
+def parse_label_map(raw_map: str) -> dict[str, int]:
+    labels: dict[str, int] = {}
+    for line in raw_map.splitlines():
+        clean = line.strip()
+        if not clean or "=" not in clean:
+            continue
+        key, value = clean.split("=", 1)
+        key = key.strip().lower()
+        value = value.strip()
+        if key and value.isdigit():
+            labels[key] = int(value)
+    return labels
+
+
 def normalize_words(value: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", value.lower()))
 
@@ -629,6 +684,97 @@ def task_context(task: ParsedTask) -> str:
     parts = [task.title, task.description, task.status or "", " ".join(task.labels)]
     parts.extend(subtask.title for subtask in task.subtasks)
     return " ".join(parts).lower()
+
+
+SEMANTIC_ROUTES = [
+    (("frontend", "front-end", "ui", "ux", "interface", "layout", "design system", "styling"), ("ui/ux", "frontend")),
+    (("backend", "api", "database", "postgres", "redis", "server", "worker", "pipeline"), ("backend",)),
+    (("qa", "test", "testing", "validation", "bug", "approval"), ("qa", "testing")),
+    (("security", "auth", "permission", "cryptographic", "isolation"), ("security",)),
+    (("content", "eeat", "seo", "keyword", "metadata", "search console"), ("seo", "content")),
+    (("voice", "call", "outbound", "webrtc", "demo"), ("voice", "operations")),
+    (("deployment", "docker", "release", "shipping", "infrastructure"), ("deployment", "infrastructure")),
+]
+
+
+def infer_task_labels(task: ParsedTask) -> list[str]:
+    context = task_context(task)
+    labels: list[str] = []
+    for keywords, label_names in SEMANTIC_ROUTES:
+        if any(keyword in context for keyword in keywords):
+            labels.append(label_names[0])
+    if task.priority:
+        labels.append(task.priority.lower())
+    if task.status:
+        labels.append(task.status.lower())
+    return labels
+
+
+def labels_needed_for_parse_result(parse_result: ParseResult) -> list[str]:
+    labels: list[str] = []
+    seen: set[str] = set()
+    for task in parse_result.tasks:
+        for label in task.labels + infer_task_labels(task):
+            clean = label.strip()
+            if clean and not clean.isdigit() and clean.lower() not in seen:
+                labels.append(clean)
+                seen.add(clean.lower())
+        for subtask in task.subtasks:
+            for label in subtask.labels + infer_task_labels(subtask):
+                clean = label.strip()
+                if clean and not clean.isdigit() and clean.lower() not in seen:
+                    labels.append(clean)
+                    seen.add(clean.lower())
+    return labels
+
+
+def sync_label_map(
+    client: ProofHubClient,
+    label_map: dict[str, int],
+    needed_labels: list[str],
+    labels_endpoint: str,
+    create_label_endpoint: str,
+    auto_create_missing_labels: bool,
+) -> tuple[dict[str, int], list[dict[str, Any]]]:
+    logs: list[dict[str, Any]] = []
+    merged = dict(label_map)
+    missing = [label for label in needed_labels if label.lower() not in merged]
+    if not missing:
+        return merged, logs
+
+    try:
+        for label in client.list_labels(labels_endpoint):
+            name = str(label.get("name", "")).strip().lower()
+            label_id = label.get("id")
+            if name and str(label_id).isdigit():
+                merged[name] = int(label_id)
+    except ProofHubError as exc:
+        logs.append(error_log("Labels", str(exc), exc.status_code, exc.body))
+        return merged, logs
+
+    for label_name in missing:
+        if label_name.lower() in merged:
+            continue
+        if not auto_create_missing_labels:
+            logs.append(
+                {
+                    "time": now_local().strftime("%H:%M:%S"),
+                    "level": "info",
+                    "message": f'Label "{label_name}" inferred but not added because no ProofHub label ID exists in the Label map.',
+                }
+            )
+            continue
+        try:
+            response = client.create_label(label_name, create_label_endpoint)
+            label_id = extract_label_id(response)
+            if label_id:
+                merged[label_name.lower()] = int(label_id)
+                logs.append(label_success_log(label_name, label_id, response))
+            else:
+                logs.append(error_log(label_name, "ProofHub did not return a label ID after creating the label.", None, ""))
+        except ProofHubError as exc:
+            logs.append(error_log(label_name, str(exc), exc.status_code, exc.body))
+    return merged, logs
 
 
 def is_standalone_scope(task: ParsedTask) -> bool:
@@ -689,17 +835,8 @@ def likely_daily_update(task: ParsedTask, known_titles: list[str]) -> tuple[bool
 
 def choose_bucket(task: ParsedTask, bucket_map: dict[str, str]) -> tuple[str, str]:
     context = task_context(task)
-    semantic_routes = [
-        (("frontend", "front-end", "ui", "ux", "interface", "layout", "design system", "styling"), ("ui/ux", "frontend")),
-        (("backend", "api", "database", "postgres", "redis", "server", "worker", "pipeline"), ("backend",)),
-        (("qa", "test", "testing", "validation", "bug", "approval"), ("qa", "testing")),
-        (("security", "auth", "permission", "cryptographic", "isolation"), ("security",)),
-        (("content", "eeat", "seo", "keyword", "metadata", "search console"), ("seo", "content")),
-        (("voice", "call", "outbound", "webrtc", "demo"), ("voice", "operations")),
-        (("deployment", "docker", "release", "shipping", "infrastructure"), ("deployment", "infrastructure")),
-    ]
 
-    for keywords, bucket_names in semantic_routes:
+    for keywords, bucket_names in SEMANTIC_ROUTES:
         if any(keyword in context for keyword in keywords):
             for bucket_name in bucket_names:
                 if bucket_name in bucket_map:
@@ -719,16 +856,19 @@ def route_tasks(
     parse_result: ParseResult,
     status_map: dict[str, str],
     bucket_map: dict[str, str],
+    label_map: dict[str, int],
     known_titles: list[str],
 ) -> list[RoutingDecision]:
     decisions: list[RoutingDecision] = []
     for task in parse_result.tasks:
-        payload = build_payload(task, status_map)
+        inferred_labels = infer_task_labels(task)
+        payload = build_payload(task, status_map, label_map, inferred_labels)
         payload.setdefault("title", task.title)
         payload.setdefault("description", task.description)
         payload["status"] = task.status or ("done" if payload.get("completed") else "todo")
         payload.setdefault("start_date", task.start_at.date().isoformat() if task.start_at else None)
         payload.setdefault("due_date", task.due_at.date().isoformat() if task.due_at else None)
+        payload["inferred_labels"] = inferred_labels
 
         if is_standalone_scope(task):
             payload["roadmap_tasklists"] = initial_project_roadmap(task)
@@ -791,15 +931,16 @@ def parse_status_map(raw_map: str) -> dict[str, str]:
     return mapping
 
 
-def flatten_preview(tasks: list[ParsedTask], status_map: dict[str, str]) -> list[dict[str, Any]]:
+def flatten_preview(tasks: list[ParsedTask], status_map: dict[str, str], label_map: dict[str, int]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for task in tasks:
-        rows.append(task_to_row(task, status_map, "parent"))
+        rows.append(task_to_row(task, status_map, label_map, "parent"))
         for subtask in task.subtasks:
             rows.append(
                 task_to_row(
                     subtask,
                     status_map,
+                    label_map,
                     "subtask",
                     inherited_project_id=task.project_id,
                     inherited_tasklist_id=task.tasklist_id,
@@ -811,11 +952,13 @@ def flatten_preview(tasks: list[ParsedTask], status_map: dict[str, str]) -> list
 def task_to_row(
     task: ParsedTask,
     status_map: dict[str, str],
+    label_map: dict[str, int],
     level: str,
     inherited_project_id: str | None = None,
     inherited_tasklist_id: str | None = None,
 ) -> dict[str, Any]:
-    payload = build_payload(task, status_map)
+    inferred_labels = infer_task_labels(task)
+    payload = build_payload(task, status_map, label_map, inferred_labels)
     project_id = task.project_id or inherited_project_id or ""
     tasklist_id = task.tasklist_id or inherited_tasklist_id or ""
     return {
@@ -827,6 +970,7 @@ def task_to_row(
         "tasklist_id": tasklist_id,
         "parent_id": task.parent_id or "",
         "status": task.status or "",
+        "labels": ", ".join(task.labels + inferred_labels),
         "due": payload.get("due_at", payload.get("due_date", "")),
         "payload": payload,
     }
@@ -862,6 +1006,7 @@ def execute_tasks(
     client: ProofHubClient,
     parse_result: ParseResult,
     status_map: dict[str, str],
+    label_map: dict[str, int],
     create_endpoint: str,
     create_subtask_endpoint: str,
     update_endpoint: str,
@@ -869,7 +1014,7 @@ def execute_tasks(
     logs: list[dict[str, Any]] = []
     for task in parse_result.tasks:
         try:
-            payload = build_payload(task, status_map)
+            payload = build_payload(task, status_map, label_map, infer_task_labels(task))
             if task.action == "create":
                 assert task.project_id and task.tasklist_id
                 response = client.create_task(task.project_id, task.tasklist_id, payload, create_endpoint)
@@ -879,7 +1024,7 @@ def execute_tasks(
                     subtask.project_id = subtask.project_id or task.project_id
                     subtask.tasklist_id = subtask.tasklist_id or task.tasklist_id
                     subtask.parent_id = subtask.parent_id or created_id
-                    sub_payload = build_payload(subtask, status_map)
+                    sub_payload = build_payload(subtask, status_map, label_map, infer_task_labels(subtask))
                     if not subtask.parent_id:
                         logs.append(error_log(subtask.title, "Parent task ID was not present in the create response.", None, ""))
                         continue
@@ -917,22 +1062,73 @@ def execute_tasks(
     return logs
 
 
+def execute_project_commands(
+    client: ProofHubClient,
+    parse_result: ParseResult,
+    routing_decisions: list[RoutingDecision],
+    create_project_endpoint: str,
+    create_tasklist_endpoint: str,
+    create_roadmap_tasklists: bool,
+) -> list[dict[str, Any]]:
+    logs: list[dict[str, Any]] = []
+    for task, decision in zip(parse_result.tasks, routing_decisions):
+        if decision.action_type != "create_project":
+            continue
+        try:
+            project_payload = project_payload_from_task(task)
+            response = client.create_project(project_payload, create_project_endpoint)
+            logs.append(project_success_log(task.title, response))
+            project_id = extract_project_id(response)
+            if create_roadmap_tasklists and project_id:
+                for tasklist in initial_project_roadmap(task):
+                    try:
+                        tasklist_response = client.create_tasklist(project_id, tasklist, create_tasklist_endpoint)
+                        logs.append(tasklist_success_log(tasklist["title"], task.title, tasklist_response, project_id))
+                    except ProofHubError as exc:
+                        logs.append(error_log(tasklist["title"], str(exc), exc.status_code, exc.body))
+            elif create_roadmap_tasklists:
+                logs.append(error_log(task.title, "Project ID was not present in the create project response, so roadmap tasklists were not created.", None, ""))
+        except ProofHubError as exc:
+            logs.append(error_log(task.title, str(exc), exc.status_code, exc.body))
+        except Exception as exc:
+            logs.append(error_log(task.title, f"Unexpected project creation error: {exc}", None, ""))
+    return logs
+
+
+def project_payload_from_task(task: ParsedTask) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "title": task.title,
+        "description": task.description or f"Auto-created from ProofHub Task Orchestrator on {now_local().date().isoformat()}.",
+    }
+    if task.start_at:
+        payload["start_date"] = task.start_at.date().isoformat()
+    if task.due_at:
+        payload["end_date"] = task.due_at.date().isoformat()
+    assignees = numeric_ids(task.assignee_ids)
+    if assignees:
+        payload["assigned"] = assignees
+        payload["manager"] = assignees[0]
+    return payload
+
+
 def prepare_executable_parse_result(
     parse_result: ParseResult,
     routing_decisions: list[RoutingDecision],
+    create_standalone_projects: bool,
 ) -> tuple[ParseResult, list[dict[str, Any]]]:
     executable_tasks: list[ParsedTask] = []
     route_logs: list[dict[str, Any]] = []
     for task, decision in zip(parse_result.tasks, routing_decisions):
         if decision.action_type == "create_project":
-            route_logs.append(
-                {
-                    "time": now_local().strftime("%H:%M:%S"),
-                    "level": "info",
-                    "message": f'Project creation recommended: "{task.title}" should be created as a separate ProofHub project with its own roadmap.',
-                    "response": routing_decisions_json([decision])[0],
-                }
-            )
+            if not create_standalone_projects:
+                route_logs.append(
+                    {
+                        "time": now_local().strftime("%H:%M:%S"),
+                        "level": "info",
+                        "message": f'Project creation recommended: "{task.title}" should be created as a separate ProofHub project with its own roadmap.',
+                        "response": routing_decisions_json([decision])[0],
+                    }
+                )
             continue
         if decision.action_type == "update_existing":
             if not task.task_id:
@@ -957,6 +1153,30 @@ def extract_task_id(response: dict[str, Any]) -> str | None:
     data = response.get("data")
     if isinstance(data, dict):
         for key in ("id", "task_id"):
+            if key in data:
+                return str(data[key])
+    return None
+
+
+def extract_project_id(response: dict[str, Any]) -> str | None:
+    for key in ("id", "project_id"):
+        if key in response:
+            return str(response[key])
+    data = response.get("data")
+    if isinstance(data, dict):
+        for key in ("id", "project_id"):
+            if key in data:
+                return str(data[key])
+    return None
+
+
+def extract_label_id(response: dict[str, Any]) -> str | None:
+    for key in ("id", "label_id"):
+        if key in response:
+            return str(response[key])
+    data = response.get("data")
+    if isinstance(data, dict):
+        for key in ("id", "label_id"):
             if key in data:
                 return str(data[key])
     return None
@@ -1016,6 +1236,38 @@ def success_log(
         "time": now_local().strftime("%H:%M:%S"),
         "level": "success",
         "message": proofhub_result_message(action, title, response, project_id, tasklist_id, parent_title),
+        "response": response,
+    }
+
+
+def project_success_log(title: str, response: dict[str, Any]) -> dict[str, Any]:
+    project_id = extract_project_id(response)
+    suffix = f" (project ID {project_id})" if project_id else ""
+    return {
+        "time": now_local().strftime("%H:%M:%S"),
+        "level": "success",
+        "message": f'Project "{title}" created successfully{suffix}.',
+        "response": response,
+    }
+
+
+def tasklist_success_log(title: str, project_title: str, response: dict[str, Any], project_id: str) -> dict[str, Any]:
+    data = response_data(response)
+    tasklist_id = data.get("id") or data.get("tasklist_id")
+    suffix = f" (tasklist ID {tasklist_id})" if tasklist_id else ""
+    return {
+        "time": now_local().strftime("%H:%M:%S"),
+        "level": "success",
+        "message": f'Project "{project_title}" updated: created roadmap tasklist "{title}" in project {project_id}{suffix}.',
+        "response": response,
+    }
+
+
+def label_success_log(title: str, label_id: str, response: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "time": now_local().strftime("%H:%M:%S"),
+        "level": "success",
+        "message": f'Label "{title}" is ready in ProofHub (label ID {label_id}).',
         "response": response,
     }
 
@@ -1412,10 +1664,18 @@ def main() -> None:
         f"seo={DEFAULT_TASKLIST_ID}\n"
         "ui/ux=\nfrontend=\nbackend=\nqa=\nsecurity=\ndeployment=\nvoice=\noperations="
     )
+    raw_label_map = "ui/ux=\nbackend=\nqa=\nsecurity=\nseo=\nvoice=\ndeployment=\nhigh=\nmedium=\nlow="
     known_work_titles = ""
     create_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks"
     create_subtask_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}/subtasks"
     update_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}"
+    create_project_endpoint = "/projects"
+    create_tasklist_endpoint = "/projects/{project_id}/todolists"
+    labels_endpoint = "/labels"
+    create_label_endpoint = "/labels"
+    create_standalone_projects = True
+    create_roadmap_tasklists = True
+    auto_create_missing_labels = True
 
     with st.expander("Configure", expanded=False):
         cfg_left, cfg_right = st.columns(2, gap="large")
@@ -1428,11 +1688,19 @@ def main() -> None:
             dry_run = st.toggle("Dry run", value=True, help="Preview parsing and payloads without calling ProofHub.")
         with cfg_right:
             raw_bucket_map = st.text_area("Bucket map", value=raw_bucket_map, height=156)
+            raw_label_map = st.text_area("Label map", value=raw_label_map, height=112, help="Use ProofHub label IDs, for example `ui/ux=12254912`.")
             known_work_titles = st.text_area("Known ongoing work", value="", height=92)
             raw_status_map = st.text_area("Status map", value=raw_status_map, height=92)
             create_endpoint = st.text_input("Create task path", value=create_endpoint)
             create_subtask_endpoint = st.text_input("Create subtask path", value=create_subtask_endpoint)
             update_endpoint = st.text_input("Update task path", value=update_endpoint)
+            create_project_endpoint = st.text_input("Create project path", value=create_project_endpoint)
+            create_tasklist_endpoint = st.text_input("Create tasklist path", value=create_tasklist_endpoint)
+            labels_endpoint = st.text_input("Labels path", value=labels_endpoint)
+            create_label_endpoint = st.text_input("Create label path", value=create_label_endpoint)
+            create_standalone_projects = st.toggle("Create standalone projects", value=True)
+            create_roadmap_tasklists = st.toggle("Create roadmap tasklists", value=True)
+            auto_create_missing_labels = st.toggle("Auto-create missing labels", value=True)
 
     if auth_header == "Authorization" and api_key and not api_key.lower().startswith("bearer "):
         api_key_for_client = f"Bearer {api_key}"
@@ -1442,6 +1710,7 @@ def main() -> None:
     defaults = {"project_id": default_project_id.strip(), "tasklist_id": default_tasklist_id.strip()}
     status_map = parse_status_map(raw_status_map)
     bucket_map = parse_bucket_map(raw_bucket_map, default_tasklist_id.strip())
+    label_map = parse_label_map(raw_label_map)
     known_titles = [line.strip() for line in known_work_titles.splitlines() if line.strip()]
 
     left, right = st.columns([0.28, 0.72], gap="large")
@@ -1452,6 +1721,7 @@ def main() -> None:
         default_tasklist_id = st.text_input("Tasklist ID", value=DEFAULT_TASKLIST_ID, label_visibility="visible")
         defaults = {"project_id": default_project_id.strip(), "tasklist_id": default_tasklist_id.strip()}
         bucket_map = parse_bucket_map(raw_bucket_map, default_tasklist_id.strip())
+        label_map = parse_label_map(raw_label_map)
         if st.button("API Connection Check", width="stretch"):
             if not api_key_for_client:
                 st.session_state.connection_result = {
@@ -1479,9 +1749,12 @@ def main() -> None:
                         "status_code": exc.status_code,
                         "body": exc.body,
                     }
-        st.caption("Status map")
+        mapped_buckets = {key: value for key, value in bucket_map.items() if key != "default" and value}
+        st.caption(f"Routing: {len(mapped_buckets)} mapped buckets | {len(label_map)} label IDs")
         with st.expander("Manage Status Map"):
             st.code(raw_status_map, language="text")
+        with st.expander("Manage Routing Maps"):
+            st.code("Buckets\n" + raw_bucket_map + "\n\nLabels\n" + raw_label_map, language="text")
         st.markdown(
             f"""
             <div class="active-meta">
@@ -1521,9 +1794,9 @@ def main() -> None:
         st.session_state.raw_text = raw_text
 
         parse_result = parse_input(raw_text, defaults)
-        routing_decisions = route_tasks(parse_result, status_map, bucket_map, known_titles)
+        routing_decisions = route_tasks(parse_result, status_map, bucket_map, label_map, known_titles)
         validation_errors = validate_execution(parse_result)
-        preview_rows = flatten_preview(parse_result.tasks, status_map)
+        preview_rows = flatten_preview(parse_result.tasks, status_map, label_map)
 
         if run_clicked:
             if dry_run:
@@ -1547,20 +1820,41 @@ def main() -> None:
             elif not api_key_for_client:
                 st.session_state.run_logs.insert(0, error_log("Connection", "ProofHub API key is required.", None, ""))
             else:
-                executable_parse_result, route_logs = prepare_executable_parse_result(parse_result, routing_decisions)
+                executable_parse_result, route_logs = prepare_executable_parse_result(parse_result, routing_decisions, create_standalone_projects)
+                client = ProofHubClient(api_key_for_client, base_url, auth_header, company_url)
+                synced_label_map, label_logs = sync_label_map(
+                    client,
+                    label_map,
+                    labels_needed_for_parse_result(parse_result),
+                    labels_endpoint,
+                    create_label_endpoint,
+                    auto_create_missing_labels,
+                )
+                project_logs = (
+                    execute_project_commands(
+                        client,
+                        parse_result,
+                        routing_decisions,
+                        create_project_endpoint,
+                        create_tasklist_endpoint,
+                        create_roadmap_tasklists,
+                    )
+                    if create_standalone_projects
+                    else []
+                )
                 if executable_parse_result.tasks:
-                    client = ProofHubClient(api_key_for_client, base_url, auth_header, company_url)
                     logs = execute_tasks(
                         client,
                         executable_parse_result,
                         status_map,
+                        synced_label_map,
                         create_endpoint,
                         create_subtask_endpoint,
                         update_endpoint,
                     )
                 else:
                     logs = []
-                st.session_state.run_logs = route_logs + logs + st.session_state.run_logs
+                st.session_state.run_logs = route_logs + label_logs + project_logs + logs + st.session_state.run_logs
             st.rerun()
 
         st.markdown('<p class="panel-title">Execution Results</p>', unsafe_allow_html=True)
