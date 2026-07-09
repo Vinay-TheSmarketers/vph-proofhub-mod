@@ -105,6 +105,15 @@ qa=12254915
 
 When **Auto-create missing labels** is enabled, the app reads `/labels` and creates missing inferred labels before sending task payloads.
 
+To find labels from the app:
+
+1. Open **Configure** and confirm **Labels path** is `/labels`.
+2. Enter the ProofHub API key.
+3. Click **Fetch Labels** in **Project Setup**.
+4. Copy the generated `label-name=label-id` map into **Configure → Label map**.
+
+Keep **Auto-create missing labels** off if your ProofHub account creates labels without returning IDs. The app will still create tasks; it will only attach labels that have known numeric IDs.
+
 ## ProofHub settings
 
 The app keeps the ProofHub API key in a password field and never stores it in the log. Because ProofHub deployments and API versions can vary, the sidebar exposes:

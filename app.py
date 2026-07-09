@@ -181,10 +181,7 @@ class ProofHubClient:
 
     def list_labels(self, labels_endpoint: str) -> list[dict[str, Any]]:
         response = self._request("GET", labels_endpoint)
-        if isinstance(response, list):
-            return response
-        data = response.get("data") if isinstance(response, dict) else None
-        return data if isinstance(data, list) else []
+        return normalize_label_records(response)
 
     def create_label(self, name: str, create_label_endpoint: str) -> dict[str, Any]:
         return self._request("POST", create_label_endpoint, json_body={"name": name})
@@ -349,12 +346,16 @@ def split_structured_task_blocks(normalized: str) -> list[str]:
     current: list[str] = []
     for raw_line in normalized.splitlines():
         line = raw_line.strip()
-        if not line:
+        if not line or re.fullmatch(r"-{3,}", line):
             continue
         starts_task = bool(re.match(r"^(task\s*:|update\s+#?\d+)", line, flags=re.I))
         if starts_task and current:
-            blocks.append("\n".join(current).strip())
-            current = [line]
+            current_has_task = any(re.match(r"^(task\s*:|update\s+#?\d+)", existing, flags=re.I) for existing in current)
+            if current_has_task:
+                blocks.append("\n".join(current).strip())
+                current = [line]
+            else:
+                current.append(line)
         else:
             current.append(line)
     if current:
@@ -517,6 +518,10 @@ def parse_task_block(block: str, defaults: dict[str, Any], inherited_parent_id: 
 
 
 def parse_subtasks(block: str, defaults: dict[str, Any]) -> list[ParsedTask]:
+    structured_subtasks = parse_structured_subtasks(block, defaults)
+    if structured_subtasks:
+        return structured_subtasks
+
     subtasks: list[ParsedTask] = []
     capture = False
     seen_content_line = False
@@ -545,6 +550,51 @@ def parse_subtasks(block: str, defaults: dict[str, Any]) -> list[ParsedTask]:
             subtasks.append(task_from_subtask_line(strip_bullet_marker(stripped), defaults))
         seen_content_line = True
     return subtasks
+
+
+def parse_structured_subtasks(block: str, defaults: dict[str, Any]) -> list[ParsedTask]:
+    subtasks: list[ParsedTask] = []
+    current: list[str] = []
+    for raw_line in block.splitlines():
+        stripped = raw_line.strip()
+        if not stripped or re.fullmatch(r"-{3,}", stripped):
+            continue
+        if re.match(r"^subtask\s*:", stripped, flags=re.I):
+            if current:
+                subtasks.append(parse_subtask_block("\n".join(current), defaults))
+            current = [stripped]
+            continue
+        if current:
+            if re.match(r"^(task\s*:|update\s+#?\d+)", stripped, flags=re.I):
+                break
+            current.append(stripped)
+    if current:
+        subtasks.append(parse_subtask_block("\n".join(current), defaults))
+    return subtasks
+
+
+def parse_subtask_block(block: str, defaults: dict[str, Any]) -> ParsedTask:
+    fields, loose_lines = parse_kv_lines(block)
+    first_line = loose_lines[0] if loose_lines else block.splitlines()[0].strip()
+    title = fields.get("subtask") or fields.get("task") or re.sub(r"^subtask\s*:?\s*", "", first_line, flags=re.I).strip()
+    due_raw = fields.get("due") or fields.get("due_date") or fields.get("deadline") or fields.get("end_date")
+    start_raw = fields.get("start") or fields.get("start_date")
+    description_parts = [fields[key] for key in ("description", "notes", "details") if fields.get(key)]
+    return ParsedTask(
+        action="create",
+        title=clean_title(title) or "Untitled subtask",
+        description="\n".join(description_parts).strip(),
+        due_at=parse_relative_datetime(due_raw) if due_raw else None,
+        start_at=parse_relative_datetime(start_raw) if start_raw else None,
+        status=fields.get("status") or infer_status(first_line),
+        priority=fields.get("priority"),
+        labels=parse_csv(fields.get("labels") or fields.get("tags") or ""),
+        assignee_ids=parse_csv(fields.get("assignees") or fields.get("assigned_to") or fields.get("owners") or ""),
+        project_id=None,
+        tasklist_id=None,
+        raw=block,
+        metadata={"source": "regex-subtask-block", "parsed_at": now_local().isoformat(), "source_fields": fields},
+    )
 
 
 def task_from_subtask_line(line: str, defaults: dict[str, Any]) -> ParsedTask:
@@ -584,8 +634,8 @@ def task_from_subtask_line(line: str, defaults: dict[str, Any]) -> ParsedTask:
         start_at=start_at,
         status=status,
         priority=priority,
-        project_id=defaults.get("project_id"),
-        tasklist_id=defaults.get("tasklist_id"),
+        project_id=None,
+        tasklist_id=None,
         raw=line,
         metadata={"source": "regex-subtask", "parsed_at": now_local().isoformat()},
     )
@@ -704,6 +754,50 @@ def parse_label_map(raw_map: str) -> dict[str, int]:
     return labels
 
 
+def normalize_label_records(response: Any) -> list[dict[str, Any]]:
+    if isinstance(response, list):
+        return [item for item in response if isinstance(item, dict)]
+    if not isinstance(response, dict):
+        return []
+
+    for key in ("data", "labels", "items", "results"):
+        value = response.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+        if isinstance(value, dict):
+            nested = normalize_label_records(value)
+            if nested:
+                return nested
+
+    if response.get("name") and (response.get("id") or response.get("label_id")):
+        return [response]
+    return []
+
+
+def label_map_from_records(records: Any) -> dict[str, int]:
+    if not isinstance(records, list):
+        records = normalize_label_records(records)
+    labels: dict[str, int] = {}
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        name = str(record.get("name") or record.get("title") or "").strip()
+        label_id = record.get("id") or record.get("label_id")
+        if name and str(label_id).isdigit():
+            labels[name.lower()] = int(label_id)
+    return labels
+
+
+def label_map_text(label_map: dict[str, int]) -> str:
+    return "\n".join(f"{name}={label_id}" for name, label_id in sorted(label_map.items()))
+
+
+def effective_label_map(configured_label_map: dict[str, int]) -> dict[str, int]:
+    fetch_result = st.session_state.get("label_fetch_result")
+    fetched = fetch_result.get("labels", {}) if isinstance(fetch_result, dict) and fetch_result.get("level") == "success" else {}
+    return {**fetched, **configured_label_map}
+
+
 def normalize_words(value: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", value.lower()))
 
@@ -771,11 +865,7 @@ def sync_label_map(
         return merged, logs
 
     try:
-        for label in client.list_labels(labels_endpoint):
-            name = str(label.get("name", "")).strip().lower()
-            label_id = label.get("id")
-            if name and str(label_id).isdigit():
-                merged[name] = int(label_id)
+        merged.update(label_map_from_records(client.list_labels(labels_endpoint)))
     except ProofHubError as exc:
         logs.append(error_log("Labels", str(exc), exc.status_code, exc.body))
         return merged, logs
@@ -799,32 +889,54 @@ def sync_label_map(
                 merged[label_name.lower()] = int(label_id)
                 logs.append(label_success_log(label_name, label_id, response))
             else:
-                logs.append(error_log(label_name, "ProofHub did not return a label ID after creating the label.", None, ""))
+                try:
+                    merged.update(label_map_from_records(client.list_labels(labels_endpoint)))
+                except ProofHubError:
+                    pass
+                if label_name.lower() in merged:
+                    logs.append(label_success_log(label_name, str(merged[label_name.lower()]), response))
+                else:
+                    logs.append(
+                        error_log(
+                            label_name,
+                            "ProofHub did not return a label ID after creating the label. Use Fetch Labels or paste the label ID in Label map.",
+                            None,
+                            "",
+                        )
+                    )
         except ProofHubError as exc:
             logs.append(error_log(label_name, str(exc), exc.status_code, exc.body))
     return merged, logs
 
 
-def is_standalone_scope(task: ParsedTask) -> bool:
+def is_standalone_scope(task: ParsedTask, defaults: dict[str, Any] | None = None) -> bool:
+    defaults = defaults or {}
+    if task.project_id and task.tasklist_id and (
+        task.project_id != defaults.get("project_id") or task.tasklist_id != defaults.get("tasklist_id")
+    ):
+        return False
     context = task_context(task)
-    standalone_terms = (
-        "mini-app",
-        "mini app",
-        "new app",
-        "standalone",
+    title_context = task.title.lower()
+    explicit_new_scope_terms = (
+        "new mini-app",
+        "new mini app",
+        "new web scraper",
+        "new automation tool",
+        "standalone mini-app",
+        "standalone mini app",
+        "standalone automation",
+        "separate project",
         "separate tool",
-        "new tool",
-        "web scraper",
-        "scraper",
-        "automation tool",
-        "extension",
-        "chrome extension",
-        "portal",
-        "dashboard",
-        "platform",
-        "product",
     )
-    return any(term in context for term in standalone_terms)
+    if any(term in title_context for term in explicit_new_scope_terms):
+        return True
+    return bool(
+        re.search(
+            r"\b(?:new|standalone|separate)\b.*\b(?:app|tool|scraper|extension|portal|dashboard|platform|product|project)\b",
+            title_context,
+            flags=re.I,
+        )
+    )
 
 
 def likely_daily_update(task: ParsedTask, known_titles: list[str]) -> tuple[bool, str | None]:
@@ -898,7 +1010,7 @@ def route_tasks(
         payload.setdefault("due_date", task.due_at.date().isoformat() if task.due_at else None)
         payload["inferred_labels"] = inferred_labels
 
-        if is_standalone_scope(task):
+        if is_standalone_scope(task, parse_result.defaults):
             payload["roadmap_tasklists"] = initial_project_roadmap(task)
             decisions.append(
                 RoutingDecision(
@@ -1333,6 +1445,7 @@ def init_state() -> None:
     st.session_state.setdefault("raw_text", "")
     st.session_state.setdefault("run_logs", [])
     st.session_state.setdefault("connection_result", None)
+    st.session_state.setdefault("label_fetch_result", None)
 
 
 def load_text_file(path: str) -> str:
@@ -1347,8 +1460,12 @@ def sample_template_text() -> str:
 
 
 def render_copy_sample_button(template: str) -> None:
+    render_copy_button("copy-sample-template", "Copy Sample Text", "Copied Template", template)
+
+
+def render_copy_button(element_id: str, label: str, copied_label: str, text: str) -> None:
     button_html = f"""
-    <button id="copy-sample-template" style="
+    <button id="{element_id}" style="
         width: 100%;
         min-height: 2.7rem;
         border: 1px solid rgba(255,255,255,0.18);
@@ -1357,18 +1474,18 @@ def render_copy_sample_button(template: str) -> None:
         color: #f4f4f0;
         font: 600 0.92rem/1.2 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         cursor: pointer;
-    ">Copy Sample Text</button>
+    ">{label}</button>
     <script>
-    const button = document.getElementById("copy-sample-template");
-    const template = {json.dumps(template)};
+    const button = document.getElementById("{element_id}");
+    const template = {json.dumps(text)};
     button.addEventListener("click", async () => {{
         try {{
             await navigator.clipboard.writeText(template);
-            button.textContent = "Copied Template";
+            button.textContent = "{copied_label}";
         }} catch (error) {{
             button.textContent = "Copy Failed";
         }}
-        setTimeout(() => button.textContent = "Copy Sample Text", 1800);
+        setTimeout(() => button.textContent = "{label}", 1800);
     }});
     </script>
     """
@@ -1739,7 +1856,7 @@ def main() -> None:
     create_label_endpoint = "/labels"
     create_standalone_projects = True
     create_roadmap_tasklists = True
-    auto_create_missing_labels = True
+    auto_create_missing_labels = False
 
     with st.expander("Configure", expanded=False):
         cfg_left, cfg_right = st.columns(2, gap="large")
@@ -1764,7 +1881,7 @@ def main() -> None:
             create_label_endpoint = st.text_input("Create label path", value=create_label_endpoint)
             create_standalone_projects = st.toggle("Create standalone projects", value=True)
             create_roadmap_tasklists = st.toggle("Create roadmap tasklists", value=True)
-            auto_create_missing_labels = st.toggle("Auto-create missing labels", value=True)
+            auto_create_missing_labels = st.toggle("Auto-create missing labels", value=False)
 
     if auth_header == "Authorization" and api_key and not api_key.lower().startswith("bearer "):
         api_key_for_client = f"Bearer {api_key}"
@@ -1774,7 +1891,7 @@ def main() -> None:
     defaults = {"project_id": default_project_id.strip(), "tasklist_id": default_tasklist_id.strip()}
     status_map = parse_status_map(raw_status_map)
     bucket_map = parse_bucket_map(raw_bucket_map, default_tasklist_id.strip())
-    label_map = parse_label_map(raw_label_map)
+    label_map = effective_label_map(parse_label_map(raw_label_map))
     known_titles = [line.strip() for line in known_work_titles.splitlines() if line.strip()]
 
     left, right = st.columns([0.28, 0.72], gap="large")
@@ -1785,7 +1902,7 @@ def main() -> None:
         default_tasklist_id = st.text_input("Tasklist ID", value=DEFAULT_TASKLIST_ID, label_visibility="visible")
         defaults = {"project_id": default_project_id.strip(), "tasklist_id": default_tasklist_id.strip()}
         bucket_map = parse_bucket_map(raw_bucket_map, default_tasklist_id.strip())
-        label_map = parse_label_map(raw_label_map)
+        label_map = effective_label_map(parse_label_map(raw_label_map))
         if st.button("API Connection Check", width="stretch"):
             if not api_key_for_client:
                 st.session_state.connection_result = {
@@ -1813,6 +1930,31 @@ def main() -> None:
                         "status_code": exc.status_code,
                         "body": exc.body,
                     }
+        if st.button("Fetch Labels", width="stretch"):
+            if not api_key_for_client:
+                st.session_state.label_fetch_result = {
+                    "level": "error",
+                    "message": "Enter a ProofHub API key in Configure.",
+                    "labels": {},
+                }
+            else:
+                client = ProofHubClient(api_key_for_client, base_url, auth_header, company_url)
+                try:
+                    fetched_labels = label_map_from_records(client.list_labels(labels_endpoint))
+                    st.session_state.label_fetch_result = {
+                        "level": "success",
+                        "message": f"Fetched {len(fetched_labels)} ProofHub labels.",
+                        "labels": fetched_labels,
+                    }
+                    label_map = effective_label_map(parse_label_map(raw_label_map))
+                except ProofHubError as exc:
+                    st.session_state.label_fetch_result = {
+                        "level": "error",
+                        "message": str(exc),
+                        "labels": {},
+                        "status_code": exc.status_code,
+                        "body": exc.body,
+                    }
         mapped_buckets = {key: value for key, value in bucket_map.items() if key != "default" and value}
         st.caption(f"Routing: {len(mapped_buckets)} mapped buckets | {len(label_map)} label IDs")
         with st.expander("Manage Status Map"):
@@ -1834,6 +1976,16 @@ def main() -> None:
                 st.success(connection_result["message"])
             else:
                 st.error(connection_result["message"])
+        label_fetch_result = st.session_state.label_fetch_result
+        if label_fetch_result:
+            if label_fetch_result["level"] == "success":
+                st.success(label_fetch_result["message"])
+                fetched_label_text = label_map_text(label_fetch_result.get("labels", {}))
+                if fetched_label_text:
+                    st.code(fetched_label_text, language="text")
+                    render_copy_button("copy-label-map", "Copy Label Map", "Copied Labels", fetched_label_text)
+            else:
+                st.error(label_fetch_result["message"])
 
     with right:
         st.markdown('<p class="panel-title">Task Assistant</p>', unsafe_allow_html=True)
