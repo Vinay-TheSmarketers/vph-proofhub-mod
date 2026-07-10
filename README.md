@@ -38,9 +38,9 @@ Or use the secure prompt runner for the provided task file:
 
 The importer uses the same parser and ProofHub-compliant payload builder as the Streamlit app.
 
-In the Streamlit app, use **Load provided task text** to load the current pasted task file directly into the raw task box.
+In the Streamlit app, use **Copy Sample Text** to copy the structured template, then paste it into the raw task box.
 
-## Input format
+## Input Format
 
 Use one parent task per block. Add metadata as `Field: value` lines. Put child work under `Subtasks:`.
 
@@ -94,6 +94,13 @@ Supported `action_type` values:
 
 Use **Bucket map** to connect semantic names like `ui/ux`, `backend`, `qa`, `security`, and `voice` to real ProofHub tasklist IDs. Blank bucket IDs are ignored, so any unmapped work falls back to the default tasklist.
 
+To find tasklist IDs from the app:
+
+1. Open **Configure** and confirm **List tasklists path** is `/projects/{project_id}/todolists`.
+2. Enter the ProofHub API key and Project ID.
+3. Click **Fetch Tasklists** in **Project Setup**.
+4. Copy the generated bucket map into **Configure > Bucket map**.
+
 Use **Label map** to connect semantic labels to real ProofHub label IDs, for example:
 
 ```text
@@ -110,16 +117,16 @@ To find labels from the app:
 1. Open **Configure** and confirm **Labels path** is `/labels`.
 2. Enter the ProofHub API key.
 3. Click **Fetch Labels** in **Project Setup**.
-4. Copy the generated `label-name=label-id` map into **Configure → Label map**.
+4. Copy the generated `label-name=label-id` map into **Configure > Label map**.
 
-Keep **Auto-create missing labels** off if your ProofHub account creates labels without returning IDs. The app will still create tasks; it will only attach labels that have known numeric IDs.
+Keep **Auto-create missing labels** off if your ProofHub account creates labels without returning IDs. By default, **Require label IDs before live update** is on, so live mode stops before creating or updating tasks when detected labels do not have numeric ProofHub IDs. Use **Copy Missing Label Map** to copy the missing `label=` lines, paste them into **Label map**, and fill the IDs.
 
 Keep **Update matching task titles** on when importing a structured script into a tasklist that may already contain those parent tasks. The app fetches existing tasks from the configured **List tasks path**, matches parent titles, and updates the existing ProofHub task instead of creating a duplicate. Keep **Skip matching subtasks** on to prevent duplicate child tasks when the same script is run again.
 
-For a secure CLI live run, use the PowerShell helper. It prompts for the API key without storing it:
+For a secure CLI live run, use the PowerShell helper. It prompts for the API key without storing it, fetches existing ProofHub labels automatically, and stops if required label IDs are still missing:
 
 ```powershell
-.\run_proofhub_import.ps1 -FetchLabels
+.\run_proofhub_import.ps1
 ```
 
 You can also pass known label IDs directly:
@@ -128,7 +135,9 @@ You can also pass known label IDs directly:
 .\run_proofhub_import.ps1 -LabelMap "backend=123,seo-auto-system=124,api-integration=125"
 ```
 
-## ProofHub settings
+Use `-AllowMissingLabels` only when you intentionally want to create or update tasks even though some detected labels cannot be attached.
+
+## ProofHub Settings
 
 The app keeps the ProofHub API key in a password field and never stores it in the log. Because ProofHub deployments and API versions can vary, the sidebar exposes:
 

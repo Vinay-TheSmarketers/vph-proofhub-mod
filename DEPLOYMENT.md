@@ -41,11 +41,7 @@ The app can accept the API key in the password field at runtime. For team deploy
 PROOFHUB_API_KEY = "your-proofhub-api-key"
 ```
 
-If you add secret support later, read it with:
-
-```python
-st.secrets.get("PROOFHUB_API_KEY", "")
-```
+The app reads this value automatically and still lets users override it in the password field for a session.
 
 ## 4. Runtime Defaults
 
