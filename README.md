@@ -116,6 +116,18 @@ Keep **Auto-create missing labels** off if your ProofHub account creates labels 
 
 Keep **Update matching task titles** on when importing a structured script into a tasklist that may already contain those parent tasks. The app fetches existing tasks from the configured **List tasks path**, matches parent titles, and updates the existing ProofHub task instead of creating a duplicate. Keep **Skip matching subtasks** on to prevent duplicate child tasks when the same script is run again.
 
+For a secure CLI live run, use the PowerShell helper. It prompts for the API key without storing it:
+
+```powershell
+.\run_proofhub_import.ps1 -FetchLabels
+```
+
+You can also pass known label IDs directly:
+
+```powershell
+.\run_proofhub_import.ps1 -LabelMap "backend=123,seo-auto-system=124,api-integration=125"
+```
+
 ## ProofHub settings
 
 The app keeps the ProofHub API key in a password field and never stores it in the log. Because ProofHub deployments and API versions can vary, the sidebar exposes:

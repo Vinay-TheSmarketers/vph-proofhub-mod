@@ -1,5 +1,10 @@
 param(
-    [string]$InputFile = "C:\Users\OrCon\.codex\attachments\cf87045d-fad8-4611-a28f-549e1447733d\pasted-text-2.txt"
+    [string]$InputFile = "C:\Users\OrCon\.codex\attachments\6b40874b-1c9b-4814-9ca1-a804c767f17b\goal-objective.md",
+    [string]$LabelMap = "",
+    [switch]$FetchLabels,
+    [switch]$AutoCreateMissingLabels,
+    [switch]$AllowDuplicateParentTasks,
+    [switch]$AllowDuplicateSubtasks
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,7 +15,23 @@ $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
 
 try {
     $env:PROOFHUB_API_KEY = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-    & $python proofhub_import.py $InputFile --run
+    $arguments = @("proofhub_import.py", $InputFile, "--run")
+    if ($LabelMap) {
+        $arguments += @("--label-map", $LabelMap)
+    }
+    if ($FetchLabels) {
+        $arguments += "--fetch-labels"
+    }
+    if ($AutoCreateMissingLabels) {
+        $arguments += "--auto-create-missing-labels"
+    }
+    if ($AllowDuplicateParentTasks) {
+        $arguments += "--no-update-matching-titles"
+    }
+    if ($AllowDuplicateSubtasks) {
+        $arguments += "--no-skip-matching-subtasks"
+    }
+    & $python @arguments
     exit $LASTEXITCODE
 }
 finally {
