@@ -1364,7 +1364,8 @@ def execute_tasks(
             payload = build_payload(task, status_map, label_map, infer_task_labels(task))
             if task.action == "create":
                 assert task.project_id and task.tasklist_id
-                response = client.create_task(task.project_id, task.tasklist_id, payload, create_endpoint)
+                create_payload = create_payload_without_completion(payload)
+                response = client.create_task(task.project_id, task.tasklist_id, create_payload, create_endpoint)
                 created_id = extract_task_id(response)
                 logs.append(success_log("created_task", task.title, response, task.project_id, task.tasklist_id))
                 maybe_complete_created_task(
@@ -1390,6 +1391,7 @@ def execute_tasks(
                     subtask.tasklist_id = subtask.tasklist_id or task.tasklist_id
                     subtask.parent_id = subtask.parent_id or created_id
                     sub_payload = build_payload(subtask, status_map, label_map, infer_task_labels(subtask))
+                    sub_create_payload = create_payload_without_completion(sub_payload)
                     if not subtask.parent_id:
                         logs.append(error_log(subtask.title, "Parent task ID was not present in the create response.", None, ""))
                         continue
@@ -1401,7 +1403,7 @@ def execute_tasks(
                         subtask.project_id,
                         subtask.tasklist_id,
                         subtask.parent_id,
-                        sub_payload,
+                        sub_create_payload,
                         create_subtask_endpoint,
                     )
                     logs.append(
@@ -1449,6 +1451,7 @@ def execute_tasks(
                     subtask.tasklist_id = subtask.tasklist_id or task.tasklist_id
                     subtask.parent_id = subtask.parent_id or task.task_id
                     sub_payload = build_payload(subtask, status_map, label_map, infer_task_labels(subtask))
+                    sub_create_payload = create_payload_without_completion(sub_payload)
                     existing_subtask_id = existing_subtasks.get(normalized_title(subtask.title))
                     if existing_subtask_id:
                         logs.append(skipped_subtask_log(subtask.title, task.title, existing_subtask_id))
@@ -1457,7 +1460,7 @@ def execute_tasks(
                         subtask.project_id,
                         subtask.tasklist_id,
                         subtask.parent_id,
-                        sub_payload,
+                        sub_create_payload,
                         create_subtask_endpoint,
                     )
                     logs.append(
@@ -1485,6 +1488,10 @@ def execute_tasks(
         except Exception as exc:
             logs.append(error_log(task.title, f"Unexpected execution error: {exc}", None, ""))
     return logs
+
+
+def create_payload_without_completion(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if key != "completed"}
 
 
 def maybe_complete_created_task(

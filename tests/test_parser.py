@@ -210,6 +210,10 @@ Status: completed
             True,
         )
 
+        create_task_call = next(call for call in calls if call[0] == "create_task")
+        create_subtask_call = next(call for call in calls if call[0] == "create_subtask")
+        self.assertNotIn("completed", create_task_call[1])
+        self.assertNotIn("completed", create_subtask_call[2])
         self.assertIn(("update_task", "54321", {"completed": True}), calls)
         self.assertIn(("update_subtask", "54321", "98765", {"completed": True}), calls)
         self.assertTrue(any("marked task" in log["message"] for log in logs))
