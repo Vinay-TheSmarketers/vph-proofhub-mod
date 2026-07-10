@@ -945,6 +945,10 @@ def bucket_map_text(tasklist_map: dict[str, str], default_tasklist_id: str = "")
     return "\n".join(lines)
 
 
+def missing_label_template(labels: list[str]) -> str:
+    return "\n".join(f"{label}=" for label in labels)
+
+
 def effective_label_map(configured_label_map: dict[str, int]) -> dict[str, int]:
     fetch_result = st.session_state.get("label_fetch_result")
     fetched = fetch_result.get("labels", {}) if isinstance(fetch_result, dict) and fetch_result.get("level") == "success" else {}
@@ -2501,6 +2505,13 @@ def main() -> None:
                 f"{mode_text} Labels mapped: {len(mapped_labels)}"
                 + (f" | Missing label IDs: {', '.join(missing_labels)}" if missing_labels else " | All detected labels have IDs.")
             )
+            if missing_labels:
+                render_copy_button(
+                    "copy-missing-label-template",
+                    "Copy Missing Label Map",
+                    "Copied Missing Labels",
+                    missing_label_template(missing_labels),
+                )
 
         if st.session_state.run_logs:
             for item in st.session_state.run_logs[:6]:

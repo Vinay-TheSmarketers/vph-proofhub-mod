@@ -215,6 +215,9 @@ Labels: seo-auto-system, api-integration
         self.assertEqual(mapped, ["seo-auto-system", "api-integration"])
         self.assertEqual(missing, [])
 
+    def test_missing_label_template_is_ready_for_ids(self) -> None:
+        self.assertEqual(app.missing_label_template(["backend", "api-integration"]), "backend=\napi-integration=")
+
     def test_cli_live_run_stops_before_writes_when_labels_are_missing(self) -> None:
         with TemporaryDirectory() as tmpdir:
             input_file = Path(tmpdir) / "tasks.txt"
