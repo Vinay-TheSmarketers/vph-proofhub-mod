@@ -192,6 +192,11 @@ class ProofHubClient:
         response = self._request("GET", path)
         return normalize_task_records(response)
 
+    def list_tasklists(self, project_id: str, tasklists_endpoint: str) -> list[dict[str, Any]]:
+        path = tasklists_endpoint.format(project_id=project_id)
+        response = self._request("GET", path)
+        return normalize_tasklist_records(response)
+
     def check_connection(self, account_endpoint: str) -> dict[str, Any]:
         return self._request("GET", account_endpoint)
 
@@ -808,6 +813,27 @@ def normalize_task_records(response: Any) -> list[dict[str, Any]]:
     return []
 
 
+def normalize_tasklist_records(response: Any) -> list[dict[str, Any]]:
+    if isinstance(response, list):
+        return [item for item in response if isinstance(item, dict)]
+    if not isinstance(response, dict):
+        return []
+
+    for key in ("data", "tasklists", "todolists", "lists", "items", "results"):
+        value = response.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+        if isinstance(value, dict):
+            nested = normalize_tasklist_records(value)
+            if nested:
+                return nested
+
+    tasklist_id = response.get("id") or response.get("tasklist_id") or response.get("todolist_id")
+    if (response.get("title") or response.get("name")) and tasklist_id:
+        return [response]
+    return []
+
+
 def normalized_title(value: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", value.lower())).strip()
 
@@ -854,6 +880,28 @@ def label_map_from_records(records: Any) -> dict[str, int]:
 
 def label_map_text(label_map: dict[str, int]) -> str:
     return "\n".join(f"{name}={label_id}" for name, label_id in sorted(label_map.items()))
+
+
+def tasklist_map_from_records(records: Any) -> dict[str, str]:
+    if not isinstance(records, list):
+        records = normalize_tasklist_records(records)
+    tasklists: dict[str, str] = {}
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        name = str(record.get("name") or record.get("title") or "").strip()
+        tasklist_id = record.get("id") or record.get("tasklist_id") or record.get("todolist_id")
+        if name and tasklist_id:
+            tasklists[normalized_title(name)] = str(tasklist_id)
+    return tasklists
+
+
+def bucket_map_text(tasklist_map: dict[str, str], default_tasklist_id: str = "") -> str:
+    lines = []
+    if default_tasklist_id:
+        lines.append(f"default={default_tasklist_id}")
+    lines.extend(f"{name}={tasklist_id}" for name, tasklist_id in sorted(tasklist_map.items()))
+    return "\n".join(lines)
 
 
 def effective_label_map(configured_label_map: dict[str, int]) -> dict[str, int]:
@@ -1053,9 +1101,32 @@ def choose_bucket(task: ParsedTask, bucket_map: dict[str, str]) -> tuple[str, st
     for keywords, bucket_names in SEMANTIC_ROUTES:
         if any(keyword in context for keyword in keywords):
             for bucket_name in bucket_names:
-                if bucket_name in bucket_map:
-                    return bucket_map[bucket_name], f"matched `{bucket_name}` context keywords"
+                bucket_id = matching_bucket_id(bucket_name, bucket_map)
+                if bucket_id:
+                    return bucket_id, f"matched `{bucket_name}` context keywords"
     return bucket_map.get("default", task.tasklist_id or DEFAULT_TASKLIST_ID), "fell back to default active bucket"
+
+
+def matching_bucket_id(bucket_name: str, bucket_map: dict[str, str]) -> str | None:
+    direct = bucket_map.get(bucket_name)
+    if direct:
+        return direct
+
+    normalized_bucket_name = normalized_title(bucket_name)
+    direct_normalized = bucket_map.get(normalized_bucket_name)
+    if direct_normalized:
+        return direct_normalized
+
+    bucket_words = normalize_words(bucket_name)
+    for configured_name, bucket_id in bucket_map.items():
+        if configured_name == "default" or not bucket_id:
+            continue
+        configured_words = normalize_words(configured_name)
+        if normalized_title(configured_name) == normalized_bucket_name:
+            return bucket_id
+        if bucket_words and bucket_words.issubset(configured_words):
+            return bucket_id
+    return None
 
 
 def initial_project_roadmap(task: ParsedTask) -> list[dict[str, str]]:
@@ -1637,6 +1708,7 @@ def init_state() -> None:
     st.session_state.setdefault("run_logs", [])
     st.session_state.setdefault("connection_result", None)
     st.session_state.setdefault("label_fetch_result", None)
+    st.session_state.setdefault("tasklist_fetch_result", None)
 
 
 def load_text_file(path: str) -> str:
@@ -2042,6 +2114,7 @@ def main() -> None:
     create_subtask_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}/subtasks"
     update_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}"
     list_tasks_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks"
+    list_tasklists_endpoint = "/projects/{project_id}/todolists"
     create_project_endpoint = "/projects"
     create_tasklist_endpoint = "/projects/{project_id}/todolists"
     labels_endpoint = "/labels"
@@ -2070,6 +2143,7 @@ def main() -> None:
             create_subtask_endpoint = st.text_input("Create subtask path", value=create_subtask_endpoint)
             update_endpoint = st.text_input("Update task path", value=update_endpoint)
             list_tasks_endpoint = st.text_input("List tasks path", value=list_tasks_endpoint)
+            list_tasklists_endpoint = st.text_input("List tasklists path", value=list_tasklists_endpoint)
             create_project_endpoint = st.text_input("Create project path", value=create_project_endpoint)
             create_tasklist_endpoint = st.text_input("Create tasklist path", value=create_tasklist_endpoint)
             labels_endpoint = st.text_input("Labels path", value=labels_endpoint)
@@ -2152,6 +2226,38 @@ def main() -> None:
                         "status_code": exc.status_code,
                         "body": exc.body,
                     }
+        if st.button("Fetch Tasklists", width="stretch"):
+            if not api_key_for_client:
+                st.session_state.tasklist_fetch_result = {
+                    "level": "error",
+                    "message": "Enter a ProofHub API key in Configure.",
+                    "tasklists": {},
+                }
+            elif not default_project_id.strip():
+                st.session_state.tasklist_fetch_result = {
+                    "level": "error",
+                    "message": "Enter a Project ID before fetching tasklists.",
+                    "tasklists": {},
+                }
+            else:
+                client = ProofHubClient(api_key_for_client, base_url, auth_header, company_url)
+                try:
+                    fetched_tasklists = tasklist_map_from_records(
+                        client.list_tasklists(default_project_id.strip(), list_tasklists_endpoint)
+                    )
+                    st.session_state.tasklist_fetch_result = {
+                        "level": "success",
+                        "message": f"Fetched {len(fetched_tasklists)} ProofHub tasklists.",
+                        "tasklists": fetched_tasklists,
+                    }
+                except ProofHubError as exc:
+                    st.session_state.tasklist_fetch_result = {
+                        "level": "error",
+                        "message": str(exc),
+                        "tasklists": {},
+                        "status_code": exc.status_code,
+                        "body": exc.body,
+                    }
         mapped_buckets = {key: value for key, value in bucket_map.items() if key != "default" and value}
         st.caption(f"Routing: {len(mapped_buckets)} mapped buckets | {len(label_map)} label IDs")
         with st.expander("Manage Status Map"):
@@ -2183,6 +2289,19 @@ def main() -> None:
                     render_copy_button("copy-label-map", "Copy Label Map", "Copied Labels", fetched_label_text)
             else:
                 st.error(label_fetch_result["message"])
+        tasklist_fetch_result = st.session_state.tasklist_fetch_result
+        if tasklist_fetch_result:
+            if tasklist_fetch_result["level"] == "success":
+                st.success(tasklist_fetch_result["message"])
+                fetched_bucket_text = bucket_map_text(
+                    tasklist_fetch_result.get("tasklists", {}),
+                    default_tasklist_id.strip(),
+                )
+                if fetched_bucket_text:
+                    st.code(fetched_bucket_text, language="text")
+                    render_copy_button("copy-bucket-map", "Copy Bucket Map", "Copied Buckets", fetched_bucket_text)
+            else:
+                st.error(tasklist_fetch_result["message"])
 
     with right:
         st.markdown('<p class="panel-title">Task Assistant</p>', unsafe_allow_html=True)

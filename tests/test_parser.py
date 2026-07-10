@@ -160,6 +160,35 @@ Due Date: 2026-07-01
 
         self.assertTrue(any("skipped duplicate creation" in log["message"] for log in logs))
 
+    def test_tasklist_fetch_result_can_be_copied_as_bucket_map(self) -> None:
+        response = {
+            "data": {
+                "todolists": [
+                    {"id": "111", "title": "UI/UX"},
+                    {"tasklist_id": "222", "name": "Backend"},
+                ]
+            }
+        }
+
+        tasklist_map = app.tasklist_map_from_records(response)
+
+        self.assertEqual(tasklist_map, {"ui ux": "111", "backend": "222"})
+        self.assertEqual(app.bucket_map_text(tasklist_map, "999"), "default=999\nbackend=222\nui ux=111")
+
+    def test_router_matches_semantic_bucket_inside_fetched_tasklist_name(self) -> None:
+        parse_result = app.parse_input(
+            """Task: Google Search Console Module Integration
+Description: Build search console and SEO data ingestion.
+Status: in progress
+""",
+            DEFAULTS,
+        )
+        bucket_map = app.parse_bucket_map("default=999\nseo auto system=123", "999")
+
+        decisions = app.route_tasks(parse_result, {}, bucket_map, {}, [])
+
+        self.assertEqual(decisions[0].target_bucket_id, "123")
+
 
 if __name__ == "__main__":
     unittest.main()
