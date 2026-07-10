@@ -19,9 +19,6 @@ DEFAULT_TIMEOUT = 30
 DEFAULT_CONNECTION_TEST_PATH = "/projects"
 DEFAULT_PROJECT_ID = "9572720073"
 DEFAULT_TASKLIST_ID = "271269310285"
-DEFAULT_PROVIDED_TASK_FILE = (
-    r"C:\Users\OrCon\.codex\attachments\cf87045d-fad8-4611-a28f-549e1447733d\pasted-text-2.txt"
-)
 DEFAULT_SAMPLE_TEMPLATE = """Project: 9572720073
 Tasklist: 271269310285
 
@@ -1757,15 +1754,8 @@ def init_state() -> None:
     st.session_state.setdefault("tasklist_fetch_result", None)
 
 
-def load_text_file(path: str) -> str:
-    return Path(path).read_text(encoding="utf-8")
-
-
 def sample_template_text() -> str:
-    try:
-        return load_text_file(DEFAULT_PROVIDED_TASK_FILE)
-    except OSError:
-        return DEFAULT_SAMPLE_TEMPLATE
+    return DEFAULT_SAMPLE_TEMPLATE
 
 
 def render_copy_sample_button(template: str) -> None:
