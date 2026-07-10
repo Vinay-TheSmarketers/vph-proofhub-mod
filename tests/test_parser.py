@@ -1,6 +1,11 @@
+import io
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 import unittest
 
 import app
+import proofhub_import
 
 
 DEFAULTS = {"project_id": "9572720073", "tasklist_id": "271269310285"}
@@ -209,6 +214,24 @@ Labels: seo-auto-system, api-integration
         self.assertEqual(payload["labels"], [11, 12])
         self.assertEqual(mapped, ["seo-auto-system", "api-integration"])
         self.assertEqual(missing, [])
+
+    def test_cli_live_run_stops_before_writes_when_labels_are_missing(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            input_file = Path(tmpdir) / "tasks.txt"
+            input_file.write_text(
+                """Project: 9572720073
+Tasklist: 271269310285
+
+Task: Google Search Console Module Integration
+Labels: seo-auto-system
+""",
+                encoding="utf-8",
+            )
+
+            with patch("sys.argv", ["proofhub_import.py", str(input_file), "--run"]), patch("sys.stdout", io.StringIO()):
+                exit_code = proofhub_import.main()
+
+        self.assertEqual(exit_code, 4)
 
 
 if __name__ == "__main__":

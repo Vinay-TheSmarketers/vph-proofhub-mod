@@ -2149,6 +2149,7 @@ def main() -> None:
     create_standalone_projects = True
     create_roadmap_tasklists = True
     auto_create_missing_labels = False
+    require_label_ids = True
     update_matching_titles = True
     skip_matching_subtasks = True
 
@@ -2178,6 +2179,7 @@ def main() -> None:
             create_standalone_projects = st.toggle("Create standalone projects", value=True)
             create_roadmap_tasklists = st.toggle("Create roadmap tasklists", value=True)
             auto_create_missing_labels = st.toggle("Auto-create missing labels", value=False)
+            require_label_ids = st.toggle("Require label IDs before live update", value=True)
             update_matching_titles = st.toggle("Update matching task titles", value=True)
             skip_matching_subtasks = st.toggle("Skip matching subtasks", value=True)
 
@@ -2388,46 +2390,88 @@ def main() -> None:
                 )
                 _, unresolved_labels = label_coverage(parse_result, synced_label_map)
                 if unresolved_labels:
-                    label_logs.append(
-                        {
-                            "time": now_local().strftime("%H:%M:%S"),
-                            "level": "info",
-                            "message": (
-                                "Tasks will still be created, but these labels need ProofHub IDs before they can be attached: "
-                                + ", ".join(unresolved_labels)
-                            ),
-                        }
-                    )
-                project_logs = (
-                    execute_project_commands(
-                        client,
-                        parse_result,
-                        routing_decisions,
-                        create_project_endpoint,
-                        create_tasklist_endpoint,
-                        create_roadmap_tasklists,
-                    )
-                    if create_standalone_projects
-                    else []
-                )
-                match_logs = (
-                    apply_existing_task_matches(client, executable_parse_result, routing_decisions, list_tasks_endpoint)
-                    if update_matching_titles
-                    else []
-                )
-                if executable_parse_result.tasks:
-                    logs = execute_tasks(
-                        client,
-                        executable_parse_result,
-                        status_map,
-                        synced_label_map,
-                        create_endpoint,
-                        create_subtask_endpoint,
-                        update_endpoint,
-                        skip_matching_subtasks,
-                    )
+                    message = "Missing ProofHub label IDs: " + ", ".join(unresolved_labels)
+                    if require_label_ids:
+                        label_logs.append(
+                            error_log(
+                                "Labels",
+                                message + ". Fetch Labels or paste these IDs before running live mode.",
+                                None,
+                                "",
+                            )
+                        )
+                        project_logs = []
+                        match_logs = []
+                        logs = []
+                    else:
+                        label_logs.append(
+                            {
+                                "time": now_local().strftime("%H:%M:%S"),
+                                "level": "info",
+                                "message": message + ". Tasks will still be created, but those labels cannot be attached.",
+                            }
+                        )
+                        project_logs = (
+                            execute_project_commands(
+                                client,
+                                parse_result,
+                                routing_decisions,
+                                create_project_endpoint,
+                                create_tasklist_endpoint,
+                                create_roadmap_tasklists,
+                            )
+                            if create_standalone_projects
+                            else []
+                        )
+                        match_logs = (
+                            apply_existing_task_matches(client, executable_parse_result, routing_decisions, list_tasks_endpoint)
+                            if update_matching_titles
+                            else []
+                        )
+                        if executable_parse_result.tasks:
+                            logs = execute_tasks(
+                                client,
+                                executable_parse_result,
+                                status_map,
+                                synced_label_map,
+                                create_endpoint,
+                                create_subtask_endpoint,
+                                update_endpoint,
+                                skip_matching_subtasks,
+                            )
+                        else:
+                            logs = []
                 else:
-                    logs = []
+                    project_logs = (
+                        execute_project_commands(
+                            client,
+                            parse_result,
+                            routing_decisions,
+                            create_project_endpoint,
+                            create_tasklist_endpoint,
+                            create_roadmap_tasklists,
+                        )
+                        if create_standalone_projects
+                        else []
+                    )
+                    match_logs = (
+                        apply_existing_task_matches(client, executable_parse_result, routing_decisions, list_tasks_endpoint)
+                        if update_matching_titles
+                        else []
+                    )
+                    if executable_parse_result.tasks:
+                        logs = execute_tasks(
+                            client,
+                            executable_parse_result,
+                            status_map,
+                            synced_label_map,
+                            create_endpoint,
+                            create_subtask_endpoint,
+                            update_endpoint,
+                            skip_matching_subtasks,
+                        )
+                    else:
+                        logs = []
                 st.session_state.run_logs = route_logs + label_logs + project_logs + match_logs + logs + st.session_state.run_logs
             st.rerun()
 

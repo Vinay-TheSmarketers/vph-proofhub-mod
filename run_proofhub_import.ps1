@@ -3,6 +3,7 @@ param(
     [string]$LabelMap = "",
     [switch]$FetchLabels,
     [switch]$AutoCreateMissingLabels,
+    [switch]$AllowMissingLabels,
     [switch]$AllowDuplicateParentTasks,
     [switch]$AllowDuplicateSubtasks
 )
@@ -24,6 +25,9 @@ try {
     }
     if ($AutoCreateMissingLabels) {
         $arguments += "--auto-create-missing-labels"
+    }
+    if ($AllowMissingLabels) {
+        $arguments += "--allow-missing-labels"
     }
     if ($AllowDuplicateParentTasks) {
         $arguments += "--no-update-matching-titles"

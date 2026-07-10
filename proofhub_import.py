@@ -54,6 +54,7 @@ def main() -> int:
     parser.add_argument("--create-label-path", default=DEFAULT_CREATE_LABEL_PATH)
     parser.add_argument("--fetch-labels", action="store_true", help="Fetch labels from ProofHub before preview/run.")
     parser.add_argument("--auto-create-missing-labels", action="store_true")
+    parser.add_argument("--allow-missing-labels", action="store_true", help="Allow live writes even when detected labels have no ProofHub ID.")
     parser.add_argument("--no-update-matching-titles", action="store_true", help="Create duplicate parent tasks instead of updating title matches.")
     parser.add_argument("--no-skip-matching-subtasks", action="store_true", help="Create duplicate subtasks even when a title match already exists under the parent.")
     args = parser.parse_args()
@@ -107,6 +108,11 @@ def main() -> int:
     if not args.run:
         print("Dry run only. Pass --run and set PROOFHUB_API_KEY to call ProofHub.")
         return 0
+
+    if missing_labels and not args.allow_missing_labels:
+        print("Live run stopped because some labels do not have ProofHub IDs.")
+        print("Use --fetch-labels, pass --label-map, or rerun with --allow-missing-labels to create/update tasks without those labels.")
+        return 4
 
     if not api_key:
         print("Missing PROOFHUB_API_KEY environment variable.")
