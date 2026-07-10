@@ -729,7 +729,7 @@ def resolve_label_ids(values: list[str], label_map: dict[str, int]) -> list[int]
         clean = value.strip()
         if not clean:
             continue
-        label_id = int(clean) if clean.isdigit() else label_map.get(clean.lower())
+        label_id = int(clean) if clean.isdigit() else label_id_for_name(clean, label_map)
         if label_id and label_id not in seen:
             ids.append(label_id)
             seen.add(label_id)
@@ -769,7 +769,7 @@ def parse_label_map(raw_map: str) -> dict[str, int]:
         key = key.strip().lower()
         value = value.strip()
         if key and value.isdigit():
-            labels[key] = int(value)
+            add_label_aliases(labels, key, int(value))
     return labels
 
 
@@ -874,8 +874,34 @@ def label_map_from_records(records: Any) -> dict[str, int]:
         name = str(record.get("name") or record.get("title") or "").strip()
         label_id = record.get("id") or record.get("label_id")
         if name and str(label_id).isdigit():
-            labels[name.lower()] = int(label_id)
+            add_label_aliases(labels, name, int(label_id))
     return labels
+
+
+def add_label_aliases(label_map: dict[str, int], name: str, label_id: int) -> None:
+    aliases = label_aliases(name)
+    for alias in aliases:
+        label_map[alias] = label_id
+
+
+def label_aliases(name: str) -> set[str]:
+    clean = name.strip().lower()
+    normalized = normalized_title(clean)
+    aliases = {clean}
+    if normalized:
+        aliases.add(normalized)
+        aliases.add(normalized.replace(" ", "-"))
+        aliases.add(normalized.replace(" ", "_"))
+        aliases.add(normalized.replace(" ", "/"))
+    return {alias for alias in aliases if alias}
+
+
+def label_id_for_name(name: str, label_map: dict[str, int]) -> int | None:
+    for alias in label_aliases(name):
+        label_id = label_map.get(alias)
+        if label_id:
+            return label_id
+    return None
 
 
 def label_map_text(label_map: dict[str, int]) -> str:
@@ -967,8 +993,8 @@ def labels_needed_for_parse_result(parse_result: ParseResult) -> list[str]:
 
 def label_coverage(parse_result: ParseResult, label_map: dict[str, int]) -> tuple[list[str], list[str]]:
     needed = labels_needed_for_parse_result(parse_result)
-    mapped = [label for label in needed if label.lower() in label_map]
-    missing = [label for label in needed if label.lower() not in label_map]
+    mapped = [label for label in needed if label_id_for_name(label, label_map)]
+    missing = [label for label in needed if not label_id_for_name(label, label_map)]
     return mapped, missing
 
 
@@ -982,7 +1008,7 @@ def sync_label_map(
 ) -> tuple[dict[str, int], list[dict[str, Any]]]:
     logs: list[dict[str, Any]] = []
     merged = dict(label_map)
-    missing = [label for label in needed_labels if label.lower() not in merged]
+    missing = [label for label in needed_labels if not label_id_for_name(label, merged)]
     if not missing:
         return merged, logs
 
@@ -993,7 +1019,7 @@ def sync_label_map(
         return merged, logs
 
     for label_name in missing:
-        if label_name.lower() in merged:
+        if label_id_for_name(label_name, merged):
             continue
         if not auto_create_missing_labels:
             logs.append(
@@ -1015,8 +1041,9 @@ def sync_label_map(
                     merged.update(label_map_from_records(client.list_labels(labels_endpoint)))
                 except ProofHubError:
                     pass
-                if label_name.lower() in merged:
-                    logs.append(label_success_log(label_name, str(merged[label_name.lower()]), response))
+                label_id = label_id_for_name(label_name, merged)
+                if label_id:
+                    logs.append(label_success_log(label_name, str(label_id), response))
                 else:
                     logs.append(
                         error_log(

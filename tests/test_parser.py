@@ -189,6 +189,27 @@ Status: in progress
 
         self.assertEqual(decisions[0].target_bucket_id, "123")
 
+    def test_fetched_label_names_match_slugged_input_labels(self) -> None:
+        parse_result = app.parse_input(
+            """Task: Google Search Console Module Integration
+Labels: seo-auto-system, api-integration
+""",
+            DEFAULTS,
+        )
+        label_map = app.label_map_from_records(
+            [
+                {"id": "11", "name": "SEO Auto System"},
+                {"id": "12", "name": "API Integration"},
+            ]
+        )
+
+        payload = app.build_payload(parse_result.tasks[0], {}, label_map, [])
+        mapped, missing = app.label_coverage(parse_result, label_map)
+
+        self.assertEqual(payload["labels"], [11, 12])
+        self.assertEqual(mapped, ["seo-auto-system", "api-integration"])
+        self.assertEqual(missing, [])
+
 
 if __name__ == "__main__":
     unittest.main()
