@@ -77,6 +77,25 @@ Labels: seo-auto-system, backend
         self.assertNotIn("Labels:", parse_result.tasks[0].description)
         self.assertEqual(payload["labels"], [1, 2, 3])
 
+    def test_explicit_labels_prevent_extra_semantic_label_guessing(self) -> None:
+        parse_result = app.parse_input(
+            """Task: Production Sandboxing and Live OAuth Validation
+Description: Validate OAuth, testing, deployment, and API behavior.
+Status: in progress
+Priority: high
+Labels: security, oauth, devops, testing
+
+Subtask: Conduct end-to-end data processing tests
+Status: todo
+Due Date: 2026-07-12
+""",
+            DEFAULTS,
+        )
+        parent, subtask = parse_result.tasks[0], parse_result.tasks[0].subtasks[0]
+
+        self.assertEqual(app.infer_task_labels(parent), ["high"])
+        self.assertEqual(app.infer_task_labels(subtask), [])
+
     def test_existing_task_title_match_converts_create_to_update(self) -> None:
         parse_result = app.parse_input(
             """Task: Google Search Console Module Integration

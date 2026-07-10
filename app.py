@@ -884,6 +884,11 @@ SEMANTIC_ROUTES = [
 
 
 def infer_task_labels(task: ParsedTask) -> list[str]:
+    if str(task.metadata.get("source", "")).startswith("regex-subtask"):
+        return []
+    if task.labels:
+        return [task.priority.lower()] if task.priority else []
+
     context = task_context(task)
     labels: list[str] = []
     for keywords, label_names in SEMANTIC_ROUTES:
