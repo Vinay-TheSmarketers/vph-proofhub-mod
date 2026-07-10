@@ -179,6 +179,7 @@ ProofHub's API v3 docs use company-specific base URLs and `todolists` in task pa
 Create task path: /projects/{project_id}/todolists/{tasklist_id}/tasks
 Create subtask path: /projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}/subtasks
 Update task path: /projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}
+Update subtask path: /projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}/subtasks/{subtask_id}
 ```
 
 ## Safety

@@ -184,6 +184,23 @@ class ProofHubClient:
         path = update_endpoint.format(project_id=project_id, tasklist_id=tasklist_id, task_id=task_id)
         return self._request("PUT", path, json_body=payload)
 
+    def update_subtask(
+        self,
+        project_id: str,
+        tasklist_id: str,
+        task_id: str,
+        subtask_id: str,
+        payload: dict[str, Any],
+        update_subtask_endpoint: str,
+    ) -> dict[str, Any]:
+        path = update_subtask_endpoint.format(
+            project_id=project_id,
+            tasklist_id=tasklist_id,
+            task_id=task_id,
+            subtask_id=subtask_id,
+        )
+        return self._request("PUT", path, json_body=payload)
+
     def list_tasks(self, project_id: str, tasklist_id: str, list_tasks_endpoint: str) -> list[dict[str, Any]]:
         path = list_tasks_endpoint.format(project_id=project_id, tasklist_id=tasklist_id)
         response = self._request("GET", path)
@@ -1338,6 +1355,7 @@ def execute_tasks(
     create_endpoint: str,
     create_subtask_endpoint: str,
     update_endpoint: str,
+    update_subtask_endpoint: str,
     skip_matching_subtasks: bool = True,
 ) -> list[dict[str, Any]]:
     logs: list[dict[str, Any]] = []
@@ -1349,6 +1367,14 @@ def execute_tasks(
                 response = client.create_task(task.project_id, task.tasklist_id, payload, create_endpoint)
                 created_id = extract_task_id(response)
                 logs.append(success_log("created_task", task.title, response, task.project_id, task.tasklist_id))
+                maybe_complete_created_task(
+                    client,
+                    task,
+                    payload,
+                    created_id,
+                    update_endpoint,
+                    logs,
+                )
                 existing_subtasks: dict[str, str] = {}
                 if skip_matching_subtasks and created_id:
                     existing_subtasks = load_existing_subtasks_for_parent(
@@ -1387,6 +1413,16 @@ def execute_tasks(
                             subtask.tasklist_id,
                             parent_title=task.title,
                         )
+                    )
+                    maybe_complete_created_subtask(
+                        client,
+                        subtask,
+                        sub_payload,
+                        subtask.parent_id,
+                        extract_task_id(response),
+                        update_subtask_endpoint,
+                        logs,
+                        task.title,
                     )
             else:
                 assert task.project_id and task.tasklist_id and task.task_id
@@ -1434,11 +1470,66 @@ def execute_tasks(
                             parent_title=task.title,
                         )
                     )
+                    maybe_complete_created_subtask(
+                        client,
+                        subtask,
+                        sub_payload,
+                        subtask.parent_id,
+                        extract_task_id(response),
+                        update_subtask_endpoint,
+                        logs,
+                        task.title,
+                    )
         except ProofHubError as exc:
             logs.append(error_log(task.title, str(exc), exc.status_code, exc.body))
         except Exception as exc:
             logs.append(error_log(task.title, f"Unexpected execution error: {exc}", None, ""))
     return logs
+
+
+def maybe_complete_created_task(
+    client: ProofHubClient,
+    task: ParsedTask,
+    payload: dict[str, Any],
+    created_id: str | None,
+    update_endpoint: str,
+    logs: list[dict[str, Any]],
+) -> None:
+    if payload.get("completed") is not True:
+        return
+    if not created_id:
+        logs.append(error_log(task.title, "Created task response did not include a task ID, so it could not be marked complete.", None, ""))
+        return
+    assert task.project_id and task.tasklist_id
+    response = client.update_task(task.project_id, task.tasklist_id, created_id, {"completed": True}, update_endpoint)
+    logs.append(success_log("completed_task", task.title, response, task.project_id, task.tasklist_id))
+
+
+def maybe_complete_created_subtask(
+    client: ProofHubClient,
+    subtask: ParsedTask,
+    payload: dict[str, Any],
+    parent_id: str | None,
+    subtask_id: str | None,
+    update_subtask_endpoint: str,
+    logs: list[dict[str, Any]],
+    parent_title: str | None = None,
+) -> None:
+    if payload.get("completed") is not True:
+        return
+    if not parent_id or not subtask_id:
+        logs.append(error_log(subtask.title, "Created subtask response did not include the IDs needed to mark it complete.", None, ""))
+        return
+    assert subtask.project_id and subtask.tasklist_id
+    response = client.update_subtask(
+        subtask.project_id,
+        subtask.tasklist_id,
+        parent_id,
+        subtask_id,
+        {"completed": True},
+        update_subtask_endpoint,
+    )
+    logs.append(success_log("completed_subtask", subtask.title, response, subtask.project_id, subtask.tasklist_id, parent_title))
 
 
 def apply_existing_task_matches(
@@ -1656,6 +1747,11 @@ def proofhub_result_message(
     if action == "created_subtask":
         parent = f' under "{parent_title}"' if parent_title else ""
         return f'Project "{project_name}" updated: added subtask "{title}"{parent} in "{tasklist_name}"{task_suffix}.'
+    if action == "completed_subtask":
+        parent = f' under "{parent_title}"' if parent_title else ""
+        return f'Project "{project_name}" updated: marked subtask "{title}"{parent} complete in "{tasklist_name}"{task_suffix}.'
+    if action == "completed_task":
+        return f'Project "{project_name}" updated: marked task "{title}" complete in "{tasklist_name}"{task_suffix}.'
     if action == "updated_task":
         return f'Project "{project_name}" updated: updated task "{title}" in "{tasklist_name}"{task_suffix}.'
     return f'Project "{project_name}" updated: created task "{title}" in "{tasklist_name}"{task_suffix}.'
@@ -2149,6 +2245,7 @@ def main() -> None:
     create_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks"
     create_subtask_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}/subtasks"
     update_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}"
+    update_subtask_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}/subtasks/{subtask_id}"
     list_tasks_endpoint = "/projects/{project_id}/todolists/{tasklist_id}/tasks"
     list_tasklists_endpoint = "/projects/{project_id}/todolists"
     create_project_endpoint = "/projects"
@@ -2179,6 +2276,7 @@ def main() -> None:
             create_endpoint = st.text_input("Create task path", value=create_endpoint)
             create_subtask_endpoint = st.text_input("Create subtask path", value=create_subtask_endpoint)
             update_endpoint = st.text_input("Update task path", value=update_endpoint)
+            update_subtask_endpoint = st.text_input("Update subtask path", value=update_subtask_endpoint)
             list_tasks_endpoint = st.text_input("List tasks path", value=list_tasks_endpoint)
             list_tasklists_endpoint = st.text_input("List tasklists path", value=list_tasklists_endpoint)
             create_project_endpoint = st.text_input("Create project path", value=create_project_endpoint)
@@ -2446,6 +2544,7 @@ def main() -> None:
                                 create_endpoint,
                                 create_subtask_endpoint,
                                 update_endpoint,
+                                update_subtask_endpoint,
                                 skip_matching_subtasks,
                             )
                         else:
@@ -2477,6 +2576,7 @@ def main() -> None:
                             create_endpoint,
                             create_subtask_endpoint,
                             update_endpoint,
+                            update_subtask_endpoint,
                             skip_matching_subtasks,
                         )
                     else:

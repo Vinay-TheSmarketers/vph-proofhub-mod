@@ -30,6 +30,7 @@ from app import (
 DEFAULT_CREATE_TASK_PATH = "/projects/{project_id}/todolists/{tasklist_id}/tasks"
 DEFAULT_CREATE_SUBTASK_PATH = "/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}/subtasks"
 DEFAULT_UPDATE_TASK_PATH = "/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}"
+DEFAULT_UPDATE_SUBTASK_PATH = "/projects/{project_id}/todolists/{tasklist_id}/tasks/{task_id}/subtasks/{subtask_id}"
 DEFAULT_LIST_TASKS_PATH = "/projects/{project_id}/todolists/{tasklist_id}/tasks"
 DEFAULT_STATUS_MAP = "todo=To Do\nin progress=In Progress\ndone=Completed\nblocked=Blocked"
 DEFAULT_LABELS_PATH = "/labels"
@@ -48,6 +49,7 @@ def main() -> int:
     parser.add_argument("--create-task-path", default=DEFAULT_CREATE_TASK_PATH)
     parser.add_argument("--create-subtask-path", default=DEFAULT_CREATE_SUBTASK_PATH)
     parser.add_argument("--update-task-path", default=DEFAULT_UPDATE_TASK_PATH)
+    parser.add_argument("--update-subtask-path", default=DEFAULT_UPDATE_SUBTASK_PATH)
     parser.add_argument("--list-tasks-path", default=DEFAULT_LIST_TASKS_PATH)
     parser.add_argument("--label-map", default="", help="Newline or comma separated label=id mappings.")
     parser.add_argument("--labels-path", default=DEFAULT_LABELS_PATH)
@@ -145,6 +147,7 @@ def main() -> int:
         args.create_task_path,
         args.create_subtask_path,
         args.update_task_path,
+        args.update_subtask_path,
         not args.no_skip_matching_subtasks,
     )
     logs = label_logs + match_logs + logs

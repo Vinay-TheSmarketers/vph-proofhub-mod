@@ -160,10 +160,60 @@ Due Date: 2026-07-01
             "/unused",
             "/unused",
             "/unused",
+            "/unused",
             True,
         )
 
         self.assertTrue(any("skipped duplicate creation" in log["message"] for log in logs))
+
+    def test_created_completed_tasks_are_marked_complete_after_create(self) -> None:
+        parse_result = app.parse_input(
+            """Task: Google Search Console Module Integration
+Status: completed
+
+Subtask: Document functional capabilities
+Status: completed
+""",
+            DEFAULTS,
+        )
+        calls = []
+
+        class FakeClient:
+            def create_task(self, project_id, tasklist_id, payload, create_endpoint):
+                calls.append(("create_task", payload))
+                return {"id": "54321", "title": payload["title"]}
+
+            def update_task(self, project_id, tasklist_id, task_id, payload, update_endpoint):
+                calls.append(("update_task", task_id, payload))
+                return {"id": task_id, "title": "Google Search Console Module Integration"}
+
+            def list_subtasks(self, project_id, tasklist_id, task_id, list_subtasks_endpoint):
+                return []
+
+            def create_subtask(self, project_id, tasklist_id, task_id, payload, create_subtask_endpoint):
+                calls.append(("create_subtask", task_id, payload))
+                return {"id": "98765", "title": payload["title"]}
+
+            def update_subtask(self, project_id, tasklist_id, task_id, subtask_id, payload, update_subtask_endpoint):
+                calls.append(("update_subtask", task_id, subtask_id, payload))
+                return {"id": subtask_id, "title": "Document functional capabilities"}
+
+        logs = app.execute_tasks(
+            FakeClient(),
+            parse_result,
+            {},
+            {},
+            "/unused",
+            "/unused",
+            "/unused",
+            "/unused",
+            True,
+        )
+
+        self.assertIn(("update_task", "54321", {"completed": True}), calls)
+        self.assertIn(("update_subtask", "54321", "98765", {"completed": True}), calls)
+        self.assertTrue(any("marked task" in log["message"] for log in logs))
+        self.assertTrue(any("marked subtask" in log["message"] for log in logs))
 
     def test_tasklist_fetch_result_can_be_copied_as_bucket_map(self) -> None:
         response = {
