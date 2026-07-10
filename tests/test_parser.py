@@ -228,10 +228,77 @@ Labels: seo-auto-system
                 encoding="utf-8",
             )
 
-            with patch("sys.argv", ["proofhub_import.py", str(input_file), "--run"]), patch("sys.stdout", io.StringIO()):
+            class FakeClient:
+                def __init__(self, *args, **kwargs):
+                    pass
+
+                def list_labels(self, labels_path):
+                    return []
+
+            with (
+                patch("sys.argv", ["proofhub_import.py", str(input_file), "--run"]),
+                patch.dict("os.environ", {"PROOFHUB_API_KEY": "test-key"}),
+                patch("proofhub_import.ProofHubClient", FakeClient),
+                patch("sys.stdout", io.StringIO()),
+            ):
                 exit_code = proofhub_import.main()
 
         self.assertEqual(exit_code, 4)
+
+    def test_cli_live_run_fetches_labels_automatically(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            input_file = Path(tmpdir) / "tasks.txt"
+            input_file.write_text(
+                """Project: 9572720073
+Tasklist: 271269310285
+
+Task: Google Search Console Module Integration
+Labels: seo-auto-system
+""",
+                encoding="utf-8",
+            )
+
+            class FakeClient:
+                def __init__(self, *args, **kwargs):
+                    pass
+
+                def list_labels(self, labels_path):
+                    return [{"id": "11", "name": "SEO Auto System"}]
+
+                def list_tasks(self, project_id, tasklist_id, list_tasks_endpoint):
+                    return []
+
+                def list_subtasks(self, project_id, tasklist_id, task_id, list_subtasks_endpoint):
+                    return []
+
+                def create_task(self, project_id, tasklist_id, payload, create_endpoint):
+                    return {"id": "task-1", "title": payload["title"], "project": {"id": project_id}}
+
+            with (
+                patch("sys.argv", ["proofhub_import.py", str(input_file), "--run"]),
+                patch.dict("os.environ", {"PROOFHUB_API_KEY": "test-key"}),
+                patch("proofhub_import.ProofHubClient", FakeClient),
+                patch("sys.stdout", io.StringIO()),
+            ):
+                exit_code = proofhub_import.main()
+
+        self.assertEqual(exit_code, 0)
+
+    def test_single_task_after_global_header_is_not_split_from_header(self) -> None:
+        parse_result = app.parse_input(
+            """Project: 9572720073
+Tasklist: 271269310285
+
+Task: Google Search Console Module Integration
+Labels: seo-auto-system
+""",
+            {"project_id": "", "tasklist_id": ""},
+        )
+
+        self.assertEqual(len(parse_result.tasks), 1)
+        self.assertEqual(parse_result.tasks[0].title, "Google Search Console Module Integration")
+        self.assertEqual(parse_result.tasks[0].project_id, "9572720073")
+        self.assertEqual(parse_result.tasks[0].tasklist_id, "271269310285")
 
     def test_global_project_header_is_detected_inside_intro_sentence(self) -> None:
         parse_result = app.parse_input(

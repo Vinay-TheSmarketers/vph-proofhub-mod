@@ -381,7 +381,10 @@ def split_structured_task_blocks(normalized: str) -> list[str]:
             current.append(line)
     if current:
         blocks.append("\n".join(current).strip())
-    if len(blocks) == 1 and not re.match(r"^(task\s*:|update\s+#?\d+)", blocks[0], flags=re.I):
+    if not any(
+        re.search(r"(?m)^(task\s*:|update\s+#?\d+)", block, flags=re.I)
+        for block in blocks
+    ):
         return []
     return blocks
 

@@ -68,12 +68,13 @@ def main() -> int:
     api_key = os.environ.get("PROOFHUB_API_KEY", "").strip()
     client = None
     label_logs = []
-    if args.fetch_labels or args.auto_create_missing_labels:
+    should_fetch_labels = args.fetch_labels or args.run
+    if should_fetch_labels or args.auto_create_missing_labels:
         if not api_key:
             print("Missing PROOFHUB_API_KEY environment variable for label fetching.")
             return 3
         client = ProofHubClient(api_key, args.base_url, args.api_key_header, args.company_url)
-        if args.fetch_labels:
+        if should_fetch_labels:
             label_map.update(label_map_from_records(client.list_labels(args.labels_path)))
         if args.auto_create_missing_labels:
             label_map, label_logs = sync_label_map(
