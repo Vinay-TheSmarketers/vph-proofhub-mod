@@ -233,6 +233,27 @@ Labels: seo-auto-system
 
         self.assertEqual(exit_code, 4)
 
+    def test_global_project_header_is_detected_inside_intro_sentence(self) -> None:
+        parse_result = app.parse_input(
+            """make it functional i pasted this in the app Project: 9572720073
+Tasklist: 271269310285
+
+Task: Google Search Console Module Integration
+Labels: seo-auto-system
+
+---
+
+Task: Production Sandboxing and Live OAuth Validation
+Labels: security
+""",
+            {"project_id": "", "tasklist_id": ""},
+        )
+
+        self.assertEqual(len(parse_result.tasks), 2)
+        self.assertTrue(all(task.project_id == "9572720073" for task in parse_result.tasks))
+        self.assertTrue(all(task.tasklist_id == "271269310285" for task in parse_result.tasks))
+        self.assertEqual(parse_result.warnings, [])
+
 
 if __name__ == "__main__":
     unittest.main()

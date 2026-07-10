@@ -679,7 +679,8 @@ def infer_status(text: str) -> str | None:
 
 def parse_input(raw_text: str, defaults: dict[str, Any]) -> ParseResult:
     warnings: list[str] = []
-    tasks = [parse_task_block(block, defaults) for block in split_blocks(raw_text)]
+    effective_defaults = extract_global_defaults(raw_text, defaults)
+    tasks = [parse_task_block(block, effective_defaults) for block in split_blocks(raw_text)]
 
     for task in tasks:
         if task.action == "create" and not task.tasklist_id:
@@ -689,7 +690,18 @@ def parse_input(raw_text: str, defaults: dict[str, Any]) -> ParseResult:
         if task.action == "update" and not task.task_id:
             warnings.append(f"`{task.title}` looks like an update but has no task ID.")
 
-    return ParseResult(tasks=tasks, warnings=warnings, defaults=defaults)
+    return ParseResult(tasks=tasks, warnings=warnings, defaults=effective_defaults)
+
+
+def extract_global_defaults(raw_text: str, defaults: dict[str, Any]) -> dict[str, Any]:
+    effective = dict(defaults)
+    project_match = re.search(r"\bProject\s*:\s*([A-Za-z0-9_-]+)", raw_text, flags=re.I)
+    tasklist_match = re.search(r"\bTasklist\s*:\s*([A-Za-z0-9_-]+)", raw_text, flags=re.I)
+    if project_match and not effective.get("project_id"):
+        effective["project_id"] = project_match.group(1)
+    if tasklist_match and not effective.get("tasklist_id"):
+        effective["tasklist_id"] = tasklist_match.group(1)
+    return effective
 
 
 def build_payload(
